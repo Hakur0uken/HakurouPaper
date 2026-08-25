@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { listen } from "@tauri-apps/api/event";
 import { Editor, defaultValueCtx, rootCtx } from "@milkdown/core";
 import { commonmark } from "@milkdown/preset-commonmark";
 import { history } from "@milkdown/plugin-history";
@@ -31,20 +31,12 @@ type WritingEditorProps = {
 };
 
 function createDocument(markdown = starterDocument, path: string | null = null, title = "未命名文稿"): DocumentTab {
-  return {
-    id: crypto.randomUUID(),
-    title,
-    path,
-    content: markdown,
-    initialContent: markdown,
-    isDirty: false,
-  };
+  return { id: crypto.randomUUID(), title, path, content: markdown, initialContent: markdown, isDirty: false };
 }
 
 function WritingEditor({ initialContent, onContentChange }: WritingEditorProps) {
   useEditor((root) => {
     const editor = Editor.make();
-
     editor
       .config(nord)
       .config((ctx) => {
@@ -55,10 +47,8 @@ function WritingEditor({ initialContent, onContentChange }: WritingEditorProps) 
       .use(commonmark)
       .use(history)
       .use(listener);
-
     return editor;
   }, [initialContent, onContentChange]);
-
   return <Milkdown />;
 }
 
@@ -66,6 +56,7 @@ function App() {
   const [tabs, setTabs] = useState<DocumentTab[]>(() => [createDocument()]);
   const [activeTabId, setActiveTabId] = useState(() => tabs[0]!.id);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
 
   const activeDocument = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]!,
@@ -90,7 +81,6 @@ function App() {
       setActiveTabId(existingDocument.id);
       return;
     }
-
     const filename = path.split(/[\\/]/).pop() ?? "未命名文稿";
     const document = createDocument(markdown, path, filename.replace(/\.(md|markdown|mdx)$/i, ""));
     setTabs((currentTabs) => [...currentTabs, document]);
@@ -104,7 +94,6 @@ function App() {
       filters: [{ name: "Markdown", extensions: ["md", "markdown", "mdx"] }],
     });
     if (!selectedPaths) return;
-
     for (const path of Array.isArray(selectedPaths) ? selectedPaths : [selectedPaths]) {
       try {
         const markdown = await invoke<string>("read_markdown", { path });
@@ -116,7 +105,6 @@ function App() {
   }, [addOpenedDocument]);
 
   const handleSave = useCallback(async () => {
-    if (!activeDocument) return;
     let targetPath = activeDocument.path;
     if (!targetPath) {
       const chosenPath = await save({
@@ -127,7 +115,6 @@ function App() {
       if (!chosenPath) return;
       targetPath = chosenPath.endsWith(".md") ? chosenPath : `${chosenPath}.md`;
     }
-
     try {
       await invoke("write_markdown", { path: targetPath, content: activeDocument.content });
       const title = (targetPath.split(/[\\/]/).pop() ?? "未命名文稿").replace(/\.md$/i, "");
@@ -143,7 +130,6 @@ function App() {
     const tab = tabs.find((item) => item.id === tabId);
     if (!tab) return;
     if (tab.isDirty && !window.confirm(`“${tab.title}”尚未保存。确定放弃修改并关闭吗？`)) return;
-
     const remainingTabs = tabs.filter((item) => item.id !== tabId);
     if (remainingTabs.length === 0) {
       const freshDocument = createDocument();
@@ -151,61 +137,34 @@ function App() {
       setActiveTabId(freshDocument.id);
       return;
     }
-
     setTabs(remainingTabs);
     if (tabId === activeTabId) setActiveTabId(remainingTabs[Math.max(0, tabs.indexOf(tab) - 1)]!.id);
   }, [activeTabId, tabs]);
 
-  const toggleSidebar = useCallback(() => {
-    setSidebarOpen((isOpen) => !isOpen);
+  const runEditCommand = useCallback((command: "undo" | "redo" | "cut" | "copy" | "paste") => {
+    document.execCommand(command);
+    setOpenMenu(null);
+  }, []);
+
+  const handleWindowControl = useCallback(async (action: "minimize" | "maximize" | "close") => {
+    const appWindow = getCurrentWindow();
+    if (action === "minimize") await appWindow.minimize();
+    if (action === "maximize") {
+      if (await appWindow.isMaximized()) await appWindow.unmaximize();
+      else await appWindow.maximize();
+    }
+    if (action === "close") await appWindow.close();
   }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
-        event.preventDefault();
-        void handleSave();
-      }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") {
-        event.preventDefault();
-        createNewDocument();
-      }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o") {
-        event.preventDefault();
-        void handleOpen();
-      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void handleSave(); }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") { event.preventDefault(); createNewDocument(); }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o") { event.preventDefault(); void handleOpen(); }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [createNewDocument, handleOpen, handleSave]);
-
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    void listen<string>("hakurou://menu-command", ({ payload }) => {
-      switch (payload) {
-        case "new-document":
-          createNewDocument();
-          break;
-        case "open-document":
-          void handleOpen();
-          break;
-        case "save-document":
-          void handleSave();
-          break;
-        case "close-document":
-          closeTab(activeTabId);
-          break;
-        case "toggle-sidebar":
-          toggleSidebar();
-          break;
-        default:
-          break;
-      }
-    }).then((dispose) => {
-      unlisten = dispose;
-    });
-    return () => unlisten?.();
-  }, [activeTabId, closeTab, createNewDocument, handleOpen, handleSave, toggleSidebar]);
 
   useEffect(() => {
     const warnBeforeClosing = (event: BeforeUnloadEvent) => {
@@ -217,63 +176,91 @@ function App() {
     return () => window.removeEventListener("beforeunload", warnBeforeClosing);
   }, [tabs]);
 
+  const invokeMenuAction = (action: () => void) => {
+    action();
+    setOpenMenu(null);
+  };
+
   return (
     <MilkdownProvider>
       <main className="app-shell">
-        <header className="app-toolbar">
-          <div className="toolbar-brand" aria-label="Hakurou">
-            <span className="brand-mark">白</span>
-            <span>Hakurou</span>
-          </div>
-          <div className="toolbar-document-title">
-            <span className={`toolbar-dirty ${activeDocument.isDirty ? "is-visible" : ""}`} />
-            <span>{activeDocument.title}</span>
-          </div>
-          <div className="toolbar-trailing">
-            <button type="button" className="icon-button" onClick={toggleSidebar} title="切换文稿侧栏">☰</button>
+        <header className="app-menubar" data-tauri-drag-region>
+          <nav className="app-menu-list" aria-label="应用菜单">
+            <div className="app-menu">
+              <button type="button" onClick={() => setOpenMenu(openMenu === "file" ? null : "file")}>File</button>
+              {openMenu === "file" && <div className="app-menu-popup">
+                <button type="button" onClick={() => invokeMenuAction(createNewDocument)}>New <kbd>Ctrl N</kbd></button>
+                <button type="button" onClick={() => invokeMenuAction(() => void handleOpen())}>Open… <kbd>Ctrl O</kbd></button>
+                <button type="button" onClick={() => invokeMenuAction(() => void handleSave())}>Save <kbd>Ctrl S</kbd></button>
+                <span className="app-menu-separator" />
+                <button type="button" onClick={() => invokeMenuAction(() => closeTab(activeTabId))}>Close Document <kbd>Ctrl W</kbd></button>
+              </div>}
+            </div>
+            <div className="app-menu">
+              <button type="button" onClick={() => setOpenMenu(openMenu === "edit" ? null : "edit")}>Edit</button>
+              {openMenu === "edit" && <div className="app-menu-popup">
+                <button type="button" onClick={() => runEditCommand("undo")}>Undo <kbd>Ctrl Z</kbd></button>
+                <button type="button" onClick={() => runEditCommand("redo")}>Redo <kbd>Ctrl Y</kbd></button>
+                <span className="app-menu-separator" />
+                <button type="button" onClick={() => runEditCommand("cut")}>Cut <kbd>Ctrl X</kbd></button>
+                <button type="button" onClick={() => runEditCommand("copy")}>Copy <kbd>Ctrl C</kbd></button>
+                <button type="button" onClick={() => runEditCommand("paste")}>Paste <kbd>Ctrl V</kbd></button>
+              </div>}
+            </div>
+            <div className="app-menu">
+              <button type="button" onClick={() => setOpenMenu(openMenu === "view" ? null : "view")}>View</button>
+              {openMenu === "view" && <div className="app-menu-popup"><button type="button" onClick={() => invokeMenuAction(() => setSidebarOpen((visible) => !visible))}>Document Panel <kbd>Ctrl Shift B</kbd></button></div>}
+            </div>
+            <div className="app-menu">
+              <button type="button" onClick={() => setOpenMenu(openMenu === "window" ? null : "window")}>Window</button>
+              {openMenu === "window" && <div className="app-menu-popup"><button type="button" onClick={() => invokeMenuAction(() => void handleWindowControl("minimize"))}>Minimize</button></div>}
+            </div>
+            <div className="app-menu">
+              <button type="button" onClick={() => setOpenMenu(openMenu === "help" ? null : "help")}>Help</button>
+              {openMenu === "help" && <div className="app-menu-popup"><button type="button" onClick={() => invokeMenuAction(() => window.alert("Hakurou\nLocal-first Markdown writing workspace."))}>About Hakurou</button></div>}
+            </div>
+          </nav>
+          <div className="window-controls">
+            <button type="button" onClick={() => void handleWindowControl("minimize")} aria-label="最小化">—</button>
+            <button type="button" onClick={() => void handleWindowControl("maximize")} aria-label="最大化">□</button>
+            <button type="button" className="window-close" onClick={() => void handleWindowControl("close")} aria-label="关闭">×</button>
           </div>
         </header>
 
         <div className="workspace-tabs" role="tablist" aria-label="已打开文稿">
-          {tabs.map((tab) => (
-            <div className={`workspace-tab-shell ${tab.id === activeTabId ? "is-active" : ""}`} key={tab.id}>
-              <button
-                type="button"
-                className="workspace-tab"
-                role="tab"
-                aria-selected={tab.id === activeTabId}
-                onClick={() => setActiveTabId(tab.id)}
-              >
-                <span className={`workspace-tab-dirty ${tab.isDirty ? "is-visible" : ""}`} aria-label={tab.isDirty ? "未保存" : undefined} />
-                <span className="workspace-tab-label">{tab.title}</span>
-              </button>
-              <button type="button" className="workspace-tab-close" onClick={() => closeTab(tab.id)} aria-label={`关闭 ${tab.title}`}>×</button>
-            </div>
-          ))}
+          <div className="tab-rail-spacer" />
+          <div className="workspace-tab-scroll">
+            {tabs.map((tab) => (
+              <div className={`workspace-tab-shell ${tab.id === activeTabId ? "is-active" : ""}`} key={tab.id}>
+                <button type="button" className="workspace-tab" role="tab" aria-selected={tab.id === activeTabId} onClick={() => setActiveTabId(tab.id)}>
+                  <span className={`workspace-tab-dirty ${tab.isDirty ? "is-visible" : ""}`} aria-label={tab.isDirty ? "未保存" : undefined} />
+                  <span className="workspace-tab-label">{tab.title}</span>
+                </button>
+                <button type="button" className="workspace-tab-close" onClick={() => closeTab(tab.id)} aria-label={`关闭 ${tab.title}`}>×</button>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className={`workspace-layout ${sidebarOpen ? "has-sidebar" : ""}`}>
+          <aside className="app-rail" aria-label="工作区导航">
+            <span className="rail-mark" title="Hakurou">白</span>
+            <button type="button" className={`rail-button ${sidebarOpen ? "is-active" : ""}`} onClick={() => setSidebarOpen((visible) => !visible)} title="文稿">▤</button>
+          </aside>
+          {sidebarOpen && <aside className="document-sidebar" aria-label="文稿列表">
+            <div className="sidebar-heading"><span>文稿</span></div>
+            <div className="sidebar-list">
+              {tabs.map((tab) => (
+                <button type="button" key={tab.id} className={`sidebar-document ${tab.id === activeTabId ? "is-active" : ""}`} onClick={() => setActiveTabId(tab.id)}>
+                  <span className={`sidebar-document-dot ${tab.isDirty ? "is-dirty" : ""}`} />
+                  <span>{tab.title}</span>
+                </button>
+              ))}
+            </div>
+          </aside>}
           <section className="editor-stage" aria-label="文档编辑区">
             <WritingEditor key={activeDocument.id} initialContent={activeDocument.initialContent} onContentChange={updateActiveDocument} />
           </section>
-          {sidebarOpen && (
-            <aside className="document-sidebar" aria-label="文稿列表">
-              <div className="sidebar-heading"><span>文稿</span></div>
-              <div className="sidebar-list">
-                {tabs.map((tab) => (
-                  <button
-                    type="button"
-                    key={tab.id}
-                    className={`sidebar-document ${tab.id === activeTabId ? "is-active" : ""}`}
-                    onClick={() => setActiveTabId(tab.id)}
-                  >
-                    <span className={`sidebar-document-dot ${tab.isDirty ? "is-dirty" : ""}`} />
-                    <span>{tab.title}</span>
-                  </button>
-                ))}
-              </div>
-            </aside>
-          )}
         </div>
 
         <footer className="statusbar">
