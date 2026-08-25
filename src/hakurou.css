@@ -1,0 +1,36 @@
+:root {
+  color: #25231f;
+  background: #f7f5f0;
+  font-family: "Microsoft YaHei UI", "Noto Sans SC", system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { min-width: 720px; min-height: 100vh; margin: 0; }
+
+.app-shell { min-height: 100vh; display: grid; grid-template-rows: 52px 1fr 34px; }
+
+.titlebar, .statusbar { display: flex; align-items: center; padding: 0 28px; color: #777269; font-size: 12px; }
+.titlebar { border-bottom: 1px solid #e8e4dc; justify-content: space-between; background: rgba(251, 250, 247, .88); }
+.brand { display: flex; gap: 9px; align-items: center; width: 180px; font-family: Georgia, serif; font-size: 17px; color: #39362f; }
+.brand-mark { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 7px; color: #f9f7f1; background: #4f6351; font-size: 13px; }
+.document-title { color: #48443d; font-size: 13px; font-weight: 600; }
+.document-title span { color: #a19b91; font-weight: 400; }
+.document-actions { display: flex; gap: 6px; width: 180px; justify-content: flex-end; }
+.document-actions button { border: 1px solid transparent; border-radius: 6px; padding: 6px 9px; color: #5b574f; background: transparent; font: inherit; cursor: pointer; }
+.document-actions button:hover { border-color: #ded8ce; background: #f3f0e9; }
+.document-actions .primary-action { color: #f8f7f2; background: #4f6351; }
+.document-actions .primary-action:hover { border-color: #4f6351; background: #435645; }
+
+.editor-stage { width: min(100%, 1080px); margin: 0 auto; padding: 64px 88px 90px; }
+.editor-stage .milkdown { min-height: 100%; }
+.editor-stage .ProseMirror { min-height: 65vh; outline: none; font-family: Georgia, "Noto Serif SC", "Songti SC", serif; font-size: 18px; line-height: 1.9; color: #302e29; }
+.editor-stage .ProseMirror h1 { margin: 0 0 36px; font-size: 42px; letter-spacing: -.035em; line-height: 1.25; }
+.editor-stage .ProseMirror h2 { margin: 42px 0 14px; font-size: 26px; line-height: 1.35; }
+.editor-stage .ProseMirror p { margin: 0 0 18px; }
+.editor-stage .ProseMirror strong { color: #294634; }
+
+.statusbar { justify-content: space-between; border-top: 1px solid #e8e4dc; background: rgba(251, 250, 247, .82); }
+kbd { margin-left: 3px; padding: 1px 4px; border: 1px solid #dcd7ce; border-radius: 3px; background: #f4f1ea; font: inherit; }
