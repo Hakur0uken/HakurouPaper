@@ -43,14 +43,14 @@ button { font: inherit; }
 .window-controls button:hover { background: #3a3a37; }
 .window-controls .window-close:hover { background: #c84d45; }
 
-.workspace-tabs { display: grid; grid-template-columns: 44px minmax(0, 1fr); min-width: 0; border-bottom: 1px solid #e2e0db; background: #efeeea; }
-.tab-rail-spacer { border-right: 1px solid #e2e0db; background: #f2f1ed; }
-.workspace-tab-scroll { display: flex; align-items: stretch; gap: 2px; min-width: 0; padding: 5px 12px 0; overflow-x: auto; }
+.workspace-tabs { min-width: 0; border-bottom: 1px solid #e2e0db; background: #efeeea; }
+.workspace-tab-scroll { display: flex; align-items: stretch; gap: 0; min-width: 0; overflow-x: auto; }
 .workspace-tab-scroll::-webkit-scrollbar { display: none; }
-.workspace-tab-shell { position: relative; display: flex; max-width: 210px; min-width: 118px; height: 33px; border: 1px solid transparent; border-bottom: 0; border-radius: 0; }
-.workspace-tab-shell:hover { background: rgba(255, 255, 255, .48); }
-.workspace-tab-shell.is-active { z-index: 1; border-color: #e1dfd9; background: #f8f7f4; }
-.workspace-tab { display: flex; align-items: center; min-width: 0; flex: 1; gap: 7px; border: 0; padding: 0 4px 0 10px; color: #77736b; background: transparent; cursor: pointer; text-align: left; font-size: 12px; }
+.workspace-tab-shell { position: relative; display: flex; max-width: 210px; min-width: 118px; height: 38px; border: 0; border-radius: 0; }
+.workspace-tab-shell:hover { background: rgba(255, 255, 255, .42); }
+.workspace-tab-shell.is-active { z-index: 1; background: #f8f7f4; }
+.workspace-tab-shell:not(:last-child)::after { position: absolute; top: 10px; right: 0; width: 1px; height: 18px; background: #d8d5cd; content: ""; }
+.workspace-tab { display: flex; align-items: center; min-width: 0; flex: 1; gap: 7px; border: 0; padding: 0 5px 0 14px; color: #77736b; background: transparent; cursor: pointer; text-align: left; font-size: 12px; }
 .workspace-tab-shell.is-active .workspace-tab { color: #3d3b36; }
 .workspace-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-tab-dirty, .sidebar-document-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 99px; background: transparent; }

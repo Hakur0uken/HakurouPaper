@@ -240,7 +240,6 @@ function App() {
         </header>
 
         <div className="workspace-tabs" role="tablist" aria-label="已打开文稿">
-          <div className="tab-rail-spacer" />
           <div className="workspace-tab-scroll">
             {tabs.map((tab) => (
               <div className={`workspace-tab-shell ${tab.id === activeTabId ? "is-active" : ""}`} key={tab.id}>
