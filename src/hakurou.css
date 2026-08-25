@@ -38,6 +38,13 @@ button { font: inherit; }
 .app-menu-popup button:hover { background: #eae8e1; }
 .app-menu-popup kbd { border: 0; padding: 0; color: #9c978e; background: transparent; font: inherit; font-size: 10px; }
 .app-menu-separator { display: block; height: 1px; margin: 4px 3px; background: #e1ded7; }
+.app-menu-submenu { position: relative; }
+.app-menu-submenu-trigger > span { color: #8e8a82; font-size: 16px; line-height: 10px; }
+.app-menu-submenu-popup { position: absolute; top: -5px; left: calc(100% + 4px); z-index: 21; display: none; width: 260px; padding: 4px; border: 1px solid #cbc8c0; background: #fbfaf7; }
+.app-menu-submenu.is-open .app-menu-submenu-popup { display: block; }
+.app-menu-submenu-popup button { gap: 8px; }
+.recent-file-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-menu-empty { display: block; padding: 8px 9px; color: #938f87; font-size: 12px; }
 
 .window-controls { display: flex; align-items: stretch; }
 .window-controls button { width: 46px; border: 0; padding: 0; color: #ecece8; background: transparent; cursor: pointer; font-size: 13px; }
@@ -63,7 +70,8 @@ button { font: inherit; }
 .workspace-layout { min-height: 0; display: grid; grid-template-columns: 44px minmax(0, 1fr); }
 .workspace-layout.has-sidebar { grid-template-columns: 44px 214px minmax(0, 1fr); }
 .app-rail { z-index: 2; min-height: calc(100% + 39px); margin-top: -39px; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 12px 6px; border-right: 1px solid #e4e1da; background: #f2f1ed; }
-.rail-mark { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 0; color: #f8f7f1; background: #3f5747; font-family: Georgia, "Times New Roman", serif; font-size: 13px; font-weight: 700; line-height: 1; }
+.rail-mark { display: grid; width: 24px; height: 24px; place-items: center; }
+.rail-mark img { display: block; width: 24px; height: 24px; border-radius: 0; object-fit: contain; }
 .rail-button { display: grid; width: 32px; height: 32px; place-items: center; border: 0; border-left: 2px solid transparent; border-radius: 0; padding: 0; color: #737068; background: transparent; cursor: pointer; font-size: 16px; line-height: 1; }
 .rail-button:hover, .rail-button.is-active { border-color: #3f5747; color: #3f5747; background: #e9e7e1; }
 .formula-rail-button { font-family: Georgia, "Times New Roman", serif; font-size: 20px; }

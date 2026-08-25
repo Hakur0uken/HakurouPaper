@@ -13,12 +13,13 @@ import { nord } from "@milkdown/theme-nord";
 import { FormulaLab } from "./FormulaLab";
 import { EditorControls } from "./EditorControls";
 import { createImageAssetPlugins, formulaPlugins } from "./math";
+import hakurouAppIcon from "./assets/hakurou-paper-icon.png";
 import "./App.css";
 import "./hakurou.css";
 
 const starterDocument = `# 未命名文稿
 
-从这里开始写作。Hakurou 会将你的内容保存为标准 Markdown 文件，让它能在 Typora、VS Code 和任何支持 Markdown 的工具中继续使用。
+从这里开始写作。HakurouPaper 会将你的内容保存为标准 Markdown 文件，让它能在 Typora、VS Code 和任何支持 Markdown 的工具中继续使用。
 `;
 
 type DocumentTab = {
@@ -48,6 +49,29 @@ type DocumentHeading = {
 };
 
 type PendingClose = { kind: "tab"; tabId: string } | { kind: "app" } | null;
+
+type RecentFile = {
+  path: string;
+  title: string;
+};
+
+const recentFilesStorageKey = "hakurou.recent-files";
+
+function filenameFromPath(path: string) {
+  return path.split(/[\\/]/).pop() ?? "未命名文稿";
+}
+
+function readRecentFiles(): RecentFile[] {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(recentFilesStorageKey) ?? "[]");
+    if (!Array.isArray(value)) return [];
+    return value
+      .filter((item): item is RecentFile => typeof item?.path === "string" && typeof item?.title === "string")
+      .slice(0, 10);
+  } catch {
+    return [];
+  }
+}
 
 function findAssetFolder(markdown: string) {
   return markdown.match(/\]\(\.\/assets\/([^/)]+)\//)?.[1] ?? null;
@@ -124,8 +148,11 @@ function App() {
   const [collapsedHeadings, setCollapsedHeadings] = useState<Record<string, number[]>>({});
   const [pendingClose, setPendingClose] = useState<PendingClose>(null);
   const [selectedText, setSelectedText] = useState<string | null>(null);
+  const [recentFiles, setRecentFiles] = useState<RecentFile[]>(readRecentFiles);
+  const [recentFilesMenuOpen, setRecentFilesMenuOpen] = useState(false);
   const menuListRef = useRef<HTMLElement>(null);
   const tabsRef = useRef(tabs);
+  const recentFilesMenuTimerRef = useRef<number | null>(null);
 
   const activeDocument = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]!,
@@ -173,13 +200,22 @@ function App() {
     setActiveTabId(document.id);
   }, []);
 
+  const rememberRecentFile = useCallback((path: string) => {
+    const file = { path, title: filenameFromPath(path) };
+    setRecentFiles((currentFiles) => {
+      const nextFiles = [file, ...currentFiles.filter((item) => item.path !== path)].slice(0, 10);
+      window.localStorage.setItem(recentFilesStorageKey, JSON.stringify(nextFiles));
+      return nextFiles;
+    });
+  }, []);
+
   const addOpenedDocument = useCallback((markdown: string, path: string) => {
     const existingDocument = tabs.find((tab) => tab.path === path);
     if (existingDocument) {
       activateDocument(existingDocument.id);
       return;
     }
-    const filename = path.split(/[\\/]/).pop() ?? "未命名文稿";
+    const filename = filenameFromPath(path);
     const document = createDocument(markdown, path, filename.replace(/\.(md|markdown|mdx)$/i, ""));
     if (tabs.length === 1 && isPristineWelcomeDocument(tabs[0]!)) {
       const welcomeDocument = tabs[0]!;
@@ -191,6 +227,16 @@ function App() {
     setActiveTabId(document.id);
   }, [activateDocument, tabs]);
 
+  const openDocumentPath = useCallback(async (path: string) => {
+    try {
+      const markdown = await invoke<string>("read_markdown", { path });
+      addOpenedDocument(markdown, path);
+      rememberRecentFile(path);
+    } catch (error) {
+      window.alert(`无法打开文稿：${String(error)}`);
+    }
+  }, [addOpenedDocument, rememberRecentFile]);
+
   const handleOpen = useCallback(async () => {
     const selectedPaths = await open({
       title: "打开 Markdown 文稿",
@@ -198,13 +244,8 @@ function App() {
       filters: [{ name: "Markdown", extensions: ["md", "markdown", "mdx"] }],
     });
     if (!selectedPaths) return;
-    try {
-      const markdown = await invoke<string>("read_markdown", { path: selectedPaths });
-      addOpenedDocument(markdown, selectedPaths);
-    } catch (error) {
-      window.alert(String(error));
-    }
-  }, [addOpenedDocument]);
+    await openDocumentPath(selectedPaths);
+  }, [openDocumentPath]);
 
   const handleSave = useCallback(async () => {
     let targetPath = activeDocument.path;
@@ -223,10 +264,11 @@ function App() {
       setTabs((currentTabs) => currentTabs.map((tab) => (
         tab.id === activeDocument.id ? { ...tab, path: targetPath, title, isDirty: false } : tab
       )));
+      rememberRecentFile(targetPath);
     } catch (error) {
       window.alert(String(error));
     }
-  }, [activeDocument]);
+  }, [activeDocument, rememberRecentFile]);
 
   const closeTab = useCallback((tabId: string) => {
     const tab = tabs.find((item) => item.id === tabId);
@@ -351,15 +393,40 @@ function App() {
 
   useEffect(() => {
     const closeMenuOnOutsidePress = (event: PointerEvent) => {
-      if (!menuListRef.current?.contains(event.target as Node)) setOpenMenu(null);
+      if (!menuListRef.current?.contains(event.target as Node)) {
+        setOpenMenu(null);
+        setRecentFilesMenuOpen(false);
+      }
     };
     window.addEventListener("pointerdown", closeMenuOnOutsidePress);
-    return () => window.removeEventListener("pointerdown", closeMenuOnOutsidePress);
+    return () => {
+      window.removeEventListener("pointerdown", closeMenuOnOutsidePress);
+      if (recentFilesMenuTimerRef.current !== null) window.clearTimeout(recentFilesMenuTimerRef.current);
+    };
   }, []);
+
+  useEffect(() => {
+    if (openMenu !== "file") {
+      setRecentFilesMenuOpen(false);
+      if (recentFilesMenuTimerRef.current !== null) {
+        window.clearTimeout(recentFilesMenuTimerRef.current);
+        recentFilesMenuTimerRef.current = null;
+      }
+    }
+  }, [openMenu]);
+
+  const openRecentFilesMenu = useCallback(() => {
+    if (recentFilesMenuOpen || recentFilesMenuTimerRef.current !== null) return;
+    recentFilesMenuTimerRef.current = window.setTimeout(() => {
+      setRecentFilesMenuOpen(true);
+      recentFilesMenuTimerRef.current = null;
+    }, 250);
+  }, [recentFilesMenuOpen]);
 
   const invokeMenuAction = (action: () => void) => {
     action();
     setOpenMenu(null);
+    setRecentFilesMenuOpen(false);
   };
 
   return (
@@ -371,6 +438,17 @@ function App() {
               {openMenu === "file" && <div className="app-menu-popup">
                 <button type="button" onClick={() => invokeMenuAction(createNewDocument)}>New <kbd>Ctrl N</kbd></button>
                 <button type="button" onClick={() => invokeMenuAction(() => void handleOpen())}>Open… <kbd>Ctrl O</kbd></button>
+                <div className={`app-menu-submenu ${recentFilesMenuOpen ? "is-open" : ""}`}>
+                  <button type="button" className="app-menu-submenu-trigger" aria-expanded={recentFilesMenuOpen} onMouseEnter={openRecentFilesMenu} onClick={() => setRecentFilesMenuOpen(true)}>Recent Files <span aria-hidden="true">›</span></button>
+                  <div className="app-menu-submenu-popup" aria-label="最近打开的文件">
+                    {recentFiles.length > 0 ? recentFiles.map((file) => (
+                      <button key={file.path} type="button" title={file.path} onClick={() => invokeMenuAction(() => void openDocumentPath(file.path))}>
+                        <span className="recent-file-label">{file.title}</span>
+                      </button>
+                    )) : <span className="app-menu-empty">暂无最近打开的文稿</span>}
+                  </div>
+                </div>
+                <span className="app-menu-separator" />
                 <button type="button" onClick={() => invokeMenuAction(() => void handleSave())}>Save <kbd>Ctrl S</kbd></button>
                 <span className="app-menu-separator" />
                 <button type="button" onClick={() => invokeMenuAction(() => closeTab(activeTabId))}>Close Document <kbd>Ctrl W</kbd></button>
@@ -397,7 +475,7 @@ function App() {
             </div>
             <div className="app-menu">
               <button type="button" onClick={() => setOpenMenu(openMenu === "help" ? null : "help")}>Help</button>
-              {openMenu === "help" && <div className="app-menu-popup"><button type="button" onClick={() => invokeMenuAction(() => window.alert("Hakurou\nLocal-first Markdown writing workspace."))}>About Hakurou</button></div>}
+              {openMenu === "help" && <div className="app-menu-popup"><button type="button" onClick={() => invokeMenuAction(() => window.alert("HakurouPaper\nLocal-first Markdown writing workspace."))}>About HakurouPaper</button></div>}
             </div>
           </nav>
           <div className="window-controls">
@@ -424,7 +502,7 @@ function App() {
 
         <div className={`workspace-layout ${sidebarOpen ? "has-sidebar" : ""}`}>
           <aside className="app-rail" aria-label="工作区导航">
-            <span className="rail-mark" title="Hakurou">H</span>
+            <span className="rail-mark" title="HakurouPaper"><img src={hakurouAppIcon} alt="HakurouPaper" /></span>
             <button type="button" className={`rail-button ${workspaceView === "writing" && sidebarOpen ? "is-active" : ""}`} onClick={() => { setWorkspaceView("writing"); setSidebarOpen((visible) => workspaceView === "writing" ? !visible : true); }} title="目录">▤</button>
             <button type="button" className={`rail-button formula-rail-button ${workspaceView === "formula-lab" ? "is-active" : ""}`} onClick={() => setWorkspaceView("formula-lab")} title="公式实验台">∑</button>
           </aside>
@@ -476,7 +554,7 @@ function App() {
         {pendingClose && <div className="close-confirm-backdrop" role="presentation">
           <section className="close-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="close-confirm-title">
             <h2 id="close-confirm-title">{pendingClose.kind === "app" ? "存在未保存文稿" : "文稿尚未保存"}</h2>
-            <p>{pendingClose.kind === "app" ? "存在未保存的修改。确定不保存并关闭 Hakurou 吗？" : `“${tabs.find((tab) => tab.id === pendingClose.tabId)?.title ?? "未命名文稿"}”的修改尚未保存。确定不保存并关闭此文稿吗？`}</p>
+            <p>{pendingClose.kind === "app" ? "存在未保存的修改。确定不保存并关闭 HakurouPaper 吗？" : `“${tabs.find((tab) => tab.id === pendingClose.tabId)?.title ?? "未命名文稿"}”的修改尚未保存。确定不保存并关闭此文稿吗？`}</p>
             <div className="close-confirm-actions">
               <button type="button" onClick={() => setPendingClose(null)}>返回编辑</button>
               <button type="button" className="is-danger" onClick={() => {

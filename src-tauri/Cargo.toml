@@ -1,8 +1,8 @@
 [package]
-name = "hakurou"
-version = "0.1.0"
-description = "A local-first Markdown writing workspace."
-authors = ["Hakurou Contributors"]
+name = "hakurou-paper"
+version = "0.1.1"
+description = "HakurouPaper is a local-first Markdown writing workspace."
+authors = ["HakurouPaper Contributors"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
