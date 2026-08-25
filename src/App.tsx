@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -8,6 +8,9 @@ import { history } from "@milkdown/plugin-history";
 import { listener, listenerCtx } from "@milkdown/plugin-listener";
 import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
 import { nord } from "@milkdown/theme-nord";
+import { codeMirror } from "@milkdown/crepe/feature/code-mirror";
+import { latex } from "@milkdown/crepe/feature/latex";
+import "katex/dist/katex.min.css";
 import "./App.css";
 import "./hakurou.css";
 
@@ -30,6 +33,11 @@ type WritingEditorProps = {
   onContentChange: (markdown: string) => void;
 };
 
+type DocumentHeading = {
+  level: number;
+  title: string;
+};
+
 function createDocument(markdown = starterDocument, path: string | null = null, title = "未命名文稿"): DocumentTab {
   return { id: crypto.randomUUID(), title, path, content: markdown, initialContent: markdown, isDirty: false };
 }
@@ -47,6 +55,8 @@ function WritingEditor({ initialContent, onContentChange }: WritingEditorProps) 
       .use(commonmark)
       .use(history)
       .use(listener);
+    codeMirror(editor);
+    latex(editor);
     return editor;
   }, [initialContent, onContentChange]);
   return <Milkdown />;
@@ -57,11 +67,19 @@ function App() {
   const [activeTabId, setActiveTabId] = useState(() => tabs[0]!.id);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const menuListRef = useRef<HTMLElement>(null);
 
   const activeDocument = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]!,
     [activeTabId, tabs],
   );
+
+  const documentHeadings = useMemo<DocumentHeading[]>(() => (
+    [...activeDocument.content.matchAll(/^(#{1,6})\s+(.+?)\s*#*\s*$/gm)].map((match) => ({
+      level: match[1]!.length,
+      title: match[2]!.trim(),
+    }))
+  ), [activeDocument.content]);
 
   const updateActiveDocument = useCallback((markdown: string) => {
     setTabs((currentTabs) => currentTabs.map((tab) => (
@@ -168,6 +186,11 @@ function App() {
     void handleWindowControl("maximize");
   }, [handleWindowControl]);
 
+  const jumpToHeading = useCallback((headingIndex: number) => {
+    const headings = document.querySelectorAll(".editor-stage .ProseMirror h1, .editor-stage .ProseMirror h2, .editor-stage .ProseMirror h3, .editor-stage .ProseMirror h4, .editor-stage .ProseMirror h5, .editor-stage .ProseMirror h6");
+    headings.item(headingIndex)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void handleSave(); }
@@ -188,6 +211,14 @@ function App() {
     return () => window.removeEventListener("beforeunload", warnBeforeClosing);
   }, [tabs]);
 
+  useEffect(() => {
+    const closeMenuOnOutsidePress = (event: PointerEvent) => {
+      if (!menuListRef.current?.contains(event.target as Node)) setOpenMenu(null);
+    };
+    window.addEventListener("pointerdown", closeMenuOnOutsidePress);
+    return () => window.removeEventListener("pointerdown", closeMenuOnOutsidePress);
+  }, []);
+
   const invokeMenuAction = (action: () => void) => {
     action();
     setOpenMenu(null);
@@ -197,7 +228,7 @@ function App() {
     <MilkdownProvider>
       <main className="app-shell">
         <header className="app-menubar" onMouseDown={startWindowDragging} onDoubleClick={toggleWindowMaximize}>
-          <nav className="app-menu-list" aria-label="应用菜单">
+          <nav className="app-menu-list" ref={menuListRef} aria-label="应用菜单">
             <div className="app-menu">
               <button type="button" onClick={() => setOpenMenu(openMenu === "file" ? null : "file")}>File</button>
               {openMenu === "file" && <div className="app-menu-popup">
@@ -269,6 +300,22 @@ function App() {
                 </button>
               ))}
             </div>
+            {documentHeadings.length > 0 && <>
+              <div className="sidebar-heading sidebar-outline-heading"><span>目录</span></div>
+              <div className="sidebar-outline-list">
+                {documentHeadings.map((heading, index) => (
+                  <button
+                    type="button"
+                    className={`sidebar-outline-item level-${Math.min(heading.level, 3)}`}
+                    key={`${heading.title}-${index}`}
+                    onClick={() => jumpToHeading(index)}
+                    title={heading.title}
+                  >
+                    {heading.title}
+                  </button>
+                ))}
+              </div>
+            </>}
           </aside>}
           <section className="editor-stage" aria-label="文档编辑区">
             <WritingEditor key={activeDocument.id} initialContent={activeDocument.initialContent} onContentChange={updateActiveDocument} />
