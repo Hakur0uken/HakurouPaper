@@ -8,6 +8,8 @@ import { history } from "@milkdown/plugin-history";
 import { listener, listenerCtx } from "@milkdown/plugin-listener";
 import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
 import { nord } from "@milkdown/theme-nord";
+import { mathInlineInputRule, mathInlineSchema, remarkMathPlugin } from "./math";
+import "katex/dist/katex.min.css";
 import "./App.css";
 import "./hakurou.css";
 
@@ -50,6 +52,9 @@ function WritingEditor({ initialContent, onContentChange }: WritingEditorProps) 
         ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => onContentChange(markdown));
       })
       .use(commonmark)
+      .use(remarkMathPlugin)
+      .use(mathInlineSchema)
+      .use(mathInlineInputRule)
       .use(history)
       .use(listener);
     return editor;
@@ -286,15 +291,6 @@ function App() {
             <button type="button" className={`rail-button ${sidebarOpen ? "is-active" : ""}`} onClick={() => setSidebarOpen((visible) => !visible)} title="文稿">▤</button>
           </aside>
           {sidebarOpen && <aside className="document-sidebar" aria-label="文稿列表">
-            <div className="sidebar-heading"><span>文稿</span></div>
-            <div className="sidebar-list">
-              {tabs.map((tab) => (
-                <button type="button" key={tab.id} className={`sidebar-document ${tab.id === activeTabId ? "is-active" : ""}`} onClick={() => setActiveTabId(tab.id)}>
-                  <span className={`sidebar-document-dot ${tab.isDirty ? "is-dirty" : ""}`} />
-                  <span>{tab.title}</span>
-                </button>
-              ))}
-            </div>
             {documentHeadings.length > 0 && <>
               <div className="sidebar-heading sidebar-outline-heading"><span>目录</span></div>
               <div className="sidebar-outline-list">

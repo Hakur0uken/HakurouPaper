@@ -68,7 +68,7 @@ button { font: inherit; }
 
 .document-sidebar { min-height: 0; padding: 16px 10px; border-right: 1px solid #e4e1da; background: #f2f1ed; overflow-y: auto; }
 .sidebar-heading { display: flex; align-items: center; padding: 0 8px 10px; color: #827d74; font-size: 11px; font-weight: 700; letter-spacing: .07em; }
-.sidebar-outline-heading { margin-top: 24px; padding-top: 14px; border-top: 1px solid #dfdcd5; }
+.sidebar-outline-heading { margin-top: 0; padding-top: 0; }
 .sidebar-list { display: grid; gap: 2px; }
 .sidebar-document { display: flex; align-items: center; min-width: 0; gap: 8px; border: 1px solid transparent; border-radius: 0; padding: 8px; color: #6a665e; background: transparent; cursor: pointer; text-align: left; font-size: 12px; }
 .sidebar-document span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -79,6 +79,7 @@ button { font: inherit; }
 .sidebar-outline-item:hover { color: #3f5747; background: #e9e7e1; }
 .sidebar-outline-item.level-2 { padding-left: 18px; }
 .sidebar-outline-item.level-3 { padding-left: 28px; }
+.hakurou-math-inline { display: inline-block; padding: 0 2px; color: #31503b; }
 
 .editor-stage { min-width: 0; overflow-y: auto; padding: 64px max(44px, 8vw) 84px; }
 .editor-stage .milkdown { width: min(100%, 850px); min-height: 100%; margin: 0 auto; }
