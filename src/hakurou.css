@@ -30,8 +30,11 @@ button { font: inherit; }
 .toolbar-brand { display: inline-flex; align-items: center; gap: 8px; color: #33332f; font-family: Georgia, "Times New Roman", serif; font-size: 16px; font-weight: 600; letter-spacing: .01em; }
 .brand-mark { display: grid; width: 23px; height: 23px; place-items: center; border-radius: 7px; color: #f8f7f1; background: #3f5747; font-family: "Microsoft YaHei UI", sans-serif; font-size: 12px; }
 
-.toolbar-actions { display: flex; justify-content: center; gap: 3px; }
-.toolbar-actions button, .icon-button {
+.toolbar-document-title { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; color: #4d4a44; font-family: Georgia, "Noto Serif SC", serif; font-size: 13px; }
+.toolbar-document-title > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toolbar-dirty { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 99px; background: transparent; }
+.toolbar-dirty.is-visible { background: #75936f; }
+.icon-button {
   height: 28px;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -41,8 +44,7 @@ button { font: inherit; }
   cursor: pointer;
   font-size: 12px;
 }
-.toolbar-actions button span { margin-right: 4px; color: #73776d; font-size: 15px; line-height: 0; vertical-align: -1px; }
-.toolbar-actions button:hover, .icon-button:hover { border-color: #ddd9d1; background: #f2f0eb; color: #363630; }
+.icon-button:hover { border-color: #ddd9d1; background: #f2f0eb; color: #363630; }
 .toolbar-trailing { display: flex; justify-content: flex-end; }
 .icon-button { width: 30px; padding: 0; font-size: 16px; }
 
@@ -58,15 +60,10 @@ button { font: inherit; }
 .workspace-tab-dirty.is-visible, .sidebar-document-dot.is-dirty { background: #75936f; }
 .workspace-tab-close { width: 25px; border: 0; padding: 0; color: #918d84; background: transparent; cursor: pointer; font-size: 17px; line-height: 1; }
 .workspace-tab-close:hover { color: #494640; }
-.new-tab-button { width: 31px; min-width: 31px; height: 29px; align-self: center; border: 0; border-radius: 6px; color: #77736b; background: transparent; cursor: pointer; font-size: 17px; }
-.new-tab-button:hover { background: #e2e0da; color: #46433e; }
-
 .workspace-layout { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
-.workspace-layout.has-sidebar { grid-template-columns: 214px minmax(0, 1fr); }
-.document-sidebar { min-height: 0; padding: 16px 10px; border-right: 1px solid #e4e1da; background: #f2f1ed; overflow-y: auto; }
-.sidebar-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 10px; color: #827d74; font-size: 11px; font-weight: 700; letter-spacing: .07em; }
-.sidebar-heading button { width: 23px; height: 23px; border: 0; border-radius: 5px; color: #6d6b63; background: transparent; cursor: pointer; font-size: 16px; }
-.sidebar-heading button:hover { background: #e5e2dc; }
+.workspace-layout.has-sidebar { grid-template-columns: minmax(0, 1fr) 214px; }
+.document-sidebar { min-height: 0; padding: 16px 10px; border-left: 1px solid #e4e1da; background: #f2f1ed; overflow-y: auto; }
+.sidebar-heading { display: flex; align-items: center; padding: 0 8px 10px; color: #827d74; font-size: 11px; font-weight: 700; letter-spacing: .07em; }
 .sidebar-list { display: grid; gap: 2px; }
 .sidebar-document { display: flex; align-items: center; min-width: 0; gap: 8px; border: 1px solid transparent; border-radius: 6px; padding: 8px; color: #6a665e; background: transparent; cursor: pointer; text-align: left; font-size: 12px; }
 .sidebar-document span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -85,6 +82,6 @@ button { font: inherit; }
 
 @media (max-width: 900px) {
   .app-toolbar { grid-template-columns: 130px 1fr 130px; }
-  .workspace-layout.has-sidebar { grid-template-columns: 174px minmax(0, 1fr); }
+  .workspace-layout.has-sidebar { grid-template-columns: minmax(0, 1fr) 174px; }
   .editor-stage { padding-inline: 42px; }
 }

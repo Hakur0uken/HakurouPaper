@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 import { Editor, defaultValueCtx, rootCtx } from "@milkdown/core";
 import { commonmark } from "@milkdown/preset-commonmark";
 import { history } from "@milkdown/plugin-history";
@@ -155,6 +156,10 @@ function App() {
     if (tabId === activeTabId) setActiveTabId(remainingTabs[Math.max(0, tabs.indexOf(tab) - 1)]!.id);
   }, [activeTabId, tabs]);
 
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen((isOpen) => !isOpen);
+  }, []);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
@@ -175,6 +180,34 @@ function App() {
   }, [createNewDocument, handleOpen, handleSave]);
 
   useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<string>("hakurou://menu-command", ({ payload }) => {
+      switch (payload) {
+        case "new-document":
+          createNewDocument();
+          break;
+        case "open-document":
+          void handleOpen();
+          break;
+        case "save-document":
+          void handleSave();
+          break;
+        case "close-document":
+          closeTab(activeTabId);
+          break;
+        case "toggle-sidebar":
+          toggleSidebar();
+          break;
+        default:
+          break;
+      }
+    }).then((dispose) => {
+      unlisten = dispose;
+    });
+    return () => unlisten?.();
+  }, [activeTabId, closeTab, createNewDocument, handleOpen, handleSave, toggleSidebar]);
+
+  useEffect(() => {
     const warnBeforeClosing = (event: BeforeUnloadEvent) => {
       if (!tabs.some((tab) => tab.isDirty)) return;
       event.preventDefault();
@@ -192,13 +225,12 @@ function App() {
             <span className="brand-mark">白</span>
             <span>Hakurou</span>
           </div>
-          <nav className="toolbar-actions" aria-label="文稿操作">
-            <button type="button" onClick={createNewDocument} title="新建文稿 (Ctrl+N)"><span>＋</span> 新建</button>
-            <button type="button" onClick={() => void handleOpen()} title="打开文稿 (Ctrl+O)"><span>↗</span> 打开</button>
-            <button type="button" onClick={() => void handleSave()} title="保存文稿 (Ctrl+S)"><span>⌘</span> 保存</button>
-          </nav>
+          <div className="toolbar-document-title">
+            <span className={`toolbar-dirty ${activeDocument.isDirty ? "is-visible" : ""}`} />
+            <span>{activeDocument.title}</span>
+          </div>
           <div className="toolbar-trailing">
-            <button type="button" className="icon-button" onClick={() => setSidebarOpen((open) => !open)} title="切换文稿侧栏">☰</button>
+            <button type="button" className="icon-button" onClick={toggleSidebar} title="切换文稿侧栏">☰</button>
           </div>
         </header>
 
@@ -218,13 +250,15 @@ function App() {
               <button type="button" className="workspace-tab-close" onClick={() => closeTab(tab.id)} aria-label={`关闭 ${tab.title}`}>×</button>
             </div>
           ))}
-          <button type="button" className="new-tab-button" onClick={createNewDocument} title="新建文稿">＋</button>
         </div>
 
         <div className={`workspace-layout ${sidebarOpen ? "has-sidebar" : ""}`}>
+          <section className="editor-stage" aria-label="文档编辑区">
+            <WritingEditor key={activeDocument.id} initialContent={activeDocument.initialContent} onContentChange={updateActiveDocument} />
+          </section>
           {sidebarOpen && (
             <aside className="document-sidebar" aria-label="文稿列表">
-              <div className="sidebar-heading"><span>文稿</span><button type="button" onClick={createNewDocument} aria-label="新建文稿">＋</button></div>
+              <div className="sidebar-heading"><span>文稿</span></div>
               <div className="sidebar-list">
                 {tabs.map((tab) => (
                   <button
@@ -240,9 +274,6 @@ function App() {
               </div>
             </aside>
           )}
-          <section className="editor-stage" aria-label="文档编辑区">
-            <WritingEditor key={activeDocument.id} initialContent={activeDocument.initialContent} onContentChange={updateActiveDocument} />
-          </section>
         </div>
 
         <footer className="statusbar">
