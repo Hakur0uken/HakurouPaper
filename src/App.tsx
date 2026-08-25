@@ -156,6 +156,18 @@ function App() {
     if (action === "close") await appWindow.close();
   }, []);
 
+  const startWindowDragging = useCallback((event: React.MouseEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement;
+    if (event.button !== 0 || target.closest("button, .app-menu-popup")) return;
+    void getCurrentWindow().startDragging();
+  }, []);
+
+  const toggleWindowMaximize = useCallback((event: React.MouseEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.closest("button, .app-menu-popup")) return;
+    void handleWindowControl("maximize");
+  }, [handleWindowControl]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void handleSave(); }
@@ -184,7 +196,7 @@ function App() {
   return (
     <MilkdownProvider>
       <main className="app-shell">
-        <header className="app-menubar" data-tauri-drag-region>
+        <header className="app-menubar" onMouseDown={startWindowDragging} onDoubleClick={toggleWindowMaximize}>
           <nav className="app-menu-list" aria-label="应用菜单">
             <div className="app-menu">
               <button type="button" onClick={() => setOpenMenu(openMenu === "file" ? null : "file")}>File</button>
@@ -244,7 +256,7 @@ function App() {
 
         <div className={`workspace-layout ${sidebarOpen ? "has-sidebar" : ""}`}>
           <aside className="app-rail" aria-label="工作区导航">
-            <span className="rail-mark" title="Hakurou">白</span>
+            <span className="rail-mark" title="Hakurou">H</span>
             <button type="button" className={`rail-button ${sidebarOpen ? "is-active" : ""}`} onClick={() => setSidebarOpen((visible) => !visible)} title="文稿">▤</button>
           </aside>
           {sidebarOpen && <aside className="document-sidebar" aria-label="文稿列表">
