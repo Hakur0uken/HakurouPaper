@@ -2,13 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { Editor, defaultValueCtx, rootCtx } from "@milkdown/core";
-import { commonmark } from "@milkdown/preset-commonmark";
-import { history } from "@milkdown/plugin-history";
-import { listener, listenerCtx } from "@milkdown/plugin-listener";
-import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
-import { nord } from "@milkdown/theme-nord";
-import { mathInlineInputRule, mathInlineSchema, remarkMathPlugin } from "./math";
+import { Crepe } from "@milkdown/crepe";
 import "katex/dist/katex.min.css";
 import "./App.css";
 import "./hakurou.css";
@@ -42,24 +36,42 @@ function createDocument(markdown = starterDocument, path: string | null = null, 
 }
 
 function WritingEditor({ initialContent, onContentChange }: WritingEditorProps) {
-  useEditor((root) => {
-    const editor = Editor.make();
-    editor
-      .config(nord)
-      .config((ctx) => {
-        ctx.set(rootCtx, root);
-        ctx.set(defaultValueCtx, initialContent);
-        ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => onContentChange(markdown));
-      })
-      .use(commonmark)
-      .use(remarkMathPlugin)
-      .use(mathInlineSchema)
-      .use(mathInlineInputRule)
-      .use(history)
-      .use(listener);
-    return editor;
-  }, [initialContent, onContentChange]);
-  return <Milkdown />;
+  const editorRootRef = useRef<HTMLDivElement>(null);
+  const initialContentRef = useRef(initialContent);
+  const onContentChangeRef = useRef(onContentChange);
+  onContentChangeRef.current = onContentChange;
+
+  useEffect(() => {
+    if (!editorRootRef.current) return;
+    const editor = new Crepe({
+      root: editorRootRef.current,
+      defaultValue: initialContentRef.current,
+      features: {
+        [Crepe.Feature.CodeMirror]: true,
+        [Crepe.Feature.Latex]: true,
+        [Crepe.Feature.Cursor]: false,
+        [Crepe.Feature.ListItem]: false,
+        [Crepe.Feature.LinkTooltip]: false,
+        [Crepe.Feature.ImageBlock]: false,
+        [Crepe.Feature.BlockEdit]: false,
+        [Crepe.Feature.Toolbar]: false,
+        [Crepe.Feature.Placeholder]: false,
+        [Crepe.Feature.Table]: false,
+        [Crepe.Feature.TopBar]: false,
+        [Crepe.Feature.AI]: false,
+      },
+      featureConfigs: {
+        [Crepe.Feature.Latex]: { katexOptions: { throwOnError: false } },
+      },
+    });
+    editor.on((listener) => {
+      listener.markdownUpdated((_ctx, markdown) => onContentChangeRef.current(markdown));
+    });
+    void editor.create();
+    return () => { void editor.destroy(); };
+  }, []);
+
+  return <div className="editor-root" ref={editorRootRef} />;
 }
 
 function App() {
@@ -225,8 +237,7 @@ function App() {
   };
 
   return (
-    <MilkdownProvider>
-      <main className="app-shell">
+    <main className="app-shell">
         <header className="app-menubar" onMouseDown={startWindowDragging} onDoubleClick={toggleWindowMaximize}>
           <nav className="app-menu-list" ref={menuListRef} aria-label="应用菜单">
             <div className="app-menu">
@@ -309,7 +320,7 @@ function App() {
             </>}
           </aside>}
           <section className="editor-stage" aria-label="文档编辑区">
-            <WritingEditor key={activeDocument.id} initialContent={activeDocument.initialContent} onContentChange={updateActiveDocument} />
+            <WritingEditor key={activeDocument.id} initialContent={activeDocument.content} onContentChange={updateActiveDocument} />
           </section>
         </div>
 
@@ -318,7 +329,6 @@ function App() {
           <span>{activeDocument.content.trim().length} 字符</span>
         </footer>
       </main>
-    </MilkdownProvider>
   );
 }
 
