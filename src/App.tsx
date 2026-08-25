@@ -8,9 +8,6 @@ import { history } from "@milkdown/plugin-history";
 import { listener, listenerCtx } from "@milkdown/plugin-listener";
 import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
 import { nord } from "@milkdown/theme-nord";
-import { codeMirror } from "@milkdown/crepe/feature/code-mirror";
-import { latex } from "@milkdown/crepe/feature/latex";
-import "katex/dist/katex.min.css";
 import "./App.css";
 import "./hakurou.css";
 
@@ -55,8 +52,6 @@ function WritingEditor({ initialContent, onContentChange }: WritingEditorProps) 
       .use(commonmark)
       .use(history)
       .use(listener);
-    codeMirror(editor);
-    latex(editor);
     return editor;
   }, [initialContent, onContentChange]);
   return <Milkdown />;
