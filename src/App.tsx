@@ -2,8 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { Crepe } from "@milkdown/crepe";
-import "katex/dist/katex.min.css";
+import { Editor, defaultValueCtx, rootCtx } from "@milkdown/core";
+import { $prose } from "@milkdown/utils";
+import { Plugin } from "@milkdown/prose/state";
+import { commonmark } from "@milkdown/preset-commonmark";
+import { gfm } from "@milkdown/preset-gfm";
+import { history } from "@milkdown/plugin-history";
+import { listener, listenerCtx } from "@milkdown/plugin-listener";
+import { nord } from "@milkdown/theme-nord";
+import { FormulaLab } from "./FormulaLab";
+import { EditorControls } from "./EditorControls";
+import { createImageAssetPlugins, formulaPlugins } from "./math";
 import "./App.css";
 import "./hakurou.css";
 
@@ -19,85 +28,144 @@ type DocumentTab = {
   content: string;
   initialContent: string;
   isDirty: boolean;
+  assetFolder: string | null;
 };
 
 type WritingEditorProps = {
+  documentId: string;
   initialContent: string;
-  onContentChange: (markdown: string) => void;
+  onContentChange: (documentId: string, markdown: string) => void;
+  documentPath: string | null;
+  assetFolder: string | null;
+  onAssetFolderChange: (documentId: string, folder: string) => void;
+  onSelectionChange: (text: string | null) => void;
 };
 
 type DocumentHeading = {
   level: number;
   title: string;
+  canCollapse: boolean;
 };
 
-function createDocument(markdown = starterDocument, path: string | null = null, title = "未命名文稿"): DocumentTab {
-  return { id: crypto.randomUUID(), title, path, content: markdown, initialContent: markdown, isDirty: false };
+type PendingClose = { kind: "tab"; tabId: string } | { kind: "app" } | null;
+
+function findAssetFolder(markdown: string) {
+  return markdown.match(/\]\(\.\/assets\/([^/)]+)\//)?.[1] ?? null;
 }
 
-function WritingEditor({ initialContent, onContentChange }: WritingEditorProps) {
-  const editorRootRef = useRef<HTMLDivElement>(null);
-  const initialContentRef = useRef(initialContent);
-  const onContentChangeRef = useRef(onContentChange);
-  onContentChangeRef.current = onContentChange;
+function createDocument(markdown = starterDocument, path: string | null = null, title = "未命名文稿"): DocumentTab {
+  return { id: crypto.randomUUID(), title, path, content: markdown, initialContent: markdown, isDirty: false, assetFolder: findAssetFolder(markdown) };
+}
+
+function isPristineWelcomeDocument(document: DocumentTab) {
+  return document.path === null && !document.isDirty && document.content === starterDocument;
+}
+
+function countWords(markdown: string) {
+  const plainText = markdown.replace(/```[\s\S]*?```|`[^`]*`|!?(?:\[[^\]]*\]\([^)]*\))/g, " ");
+  const cjkCharacters = plainText.match(/[\u3400-\u9fff]/g)?.length ?? 0;
+  const latinWords = plainText.match(/[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g)?.length ?? 0;
+  return cjkCharacters + latinWords;
+}
+
+function WritingEditor({ documentId, initialContent, onContentChange, documentPath, assetFolder, onAssetFolderChange, onSelectionChange }: WritingEditorProps) {
+  const mountRef = useRef<HTMLDivElement>(null);
+  const [editorView, setEditorView] = useState<import("@milkdown/prose/view").EditorView | null>(null);
 
   useEffect(() => {
-    if (!editorRootRef.current) return;
-    const editor = new Crepe({
-      root: editorRootRef.current,
-      defaultValue: initialContentRef.current,
-      features: {
-        [Crepe.Feature.CodeMirror]: true,
-        [Crepe.Feature.Latex]: true,
-        [Crepe.Feature.Cursor]: false,
-        [Crepe.Feature.ListItem]: false,
-        [Crepe.Feature.LinkTooltip]: false,
-        [Crepe.Feature.ImageBlock]: false,
-        [Crepe.Feature.BlockEdit]: false,
-        [Crepe.Feature.Toolbar]: false,
-        [Crepe.Feature.Placeholder]: false,
-        [Crepe.Feature.Table]: false,
-        [Crepe.Feature.TopBar]: false,
-        [Crepe.Feature.AI]: false,
+    const mount = mountRef.current;
+    if (!mount) return;
+    const editorHost = document.createElement("div");
+    mount.replaceChildren(editorHost);
+    let disposed = false;
+    const editorControlsBridge = $prose(() => new Plugin({
+      view: (proseView) => {
+        if (!disposed) setEditorView(proseView);
+        return {
+          destroy: () => {
+            if (!disposed) setEditorView(null);
+          },
+        };
       },
-      featureConfigs: {
-        [Crepe.Feature.Latex]: { katexOptions: { throwOnError: false } },
-      },
-    });
-    editor.on((listener) => {
-      listener.markdownUpdated((_ctx, markdown) => onContentChangeRef.current(markdown));
-    });
-    void editor.create();
-    return () => { void editor.destroy(); };
-  }, []);
+    }));
+    const editor = Editor.make();
+    editor
+      .config(nord)
+      .config((ctx) => {
+        ctx.set(rootCtx, editorHost);
+        ctx.set(defaultValueCtx, initialContent);
+        ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => onContentChange(documentId, markdown));
+      })
+      .use(commonmark)
+      .use(gfm)
+      .use(history)
+      .use(listener)
+      .use(formulaPlugins)
+      .use(createImageAssetPlugins(documentPath, assetFolder, (folder) => onAssetFolderChange(documentId, folder)))
+      .use(editorControlsBridge);
+    void editor.create().catch(console.error);
+    return () => {
+      disposed = true;
+      setEditorView(null);
+      void editor.destroy().catch(console.error);
+      if (mount.contains(editorHost)) mount.replaceChildren();
+    };
+  }, [assetFolder, documentId, documentPath, initialContent, onAssetFolderChange, onContentChange]);
 
-  return <div className="editor-root" ref={editorRootRef} />;
+  return <div className="writing-editor-root"><div ref={mountRef} data-milkdown-root="true" /><EditorControls view={editorView} onSelectionChange={onSelectionChange} /></div>;
 }
 
 function App() {
   const [tabs, setTabs] = useState<DocumentTab[]>(() => [createDocument()]);
   const [activeTabId, setActiveTabId] = useState(() => tabs[0]!.id);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [workspaceView, setWorkspaceView] = useState<"writing" | "formula-lab">("writing");
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [collapsedHeadings, setCollapsedHeadings] = useState<Record<string, number[]>>({});
+  const [pendingClose, setPendingClose] = useState<PendingClose>(null);
+  const [selectedText, setSelectedText] = useState<string | null>(null);
   const menuListRef = useRef<HTMLElement>(null);
+  const tabsRef = useRef(tabs);
 
   const activeDocument = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]!,
     [activeTabId, tabs],
   );
 
-  const documentHeadings = useMemo<DocumentHeading[]>(() => (
-    [...activeDocument.content.matchAll(/^(#{1,6})\s+(.+?)\s*#*\s*$/gm)].map((match) => ({
-      level: match[1]!.length,
-      title: match[2]!.trim(),
-    }))
-  ), [activeDocument.content]);
+  const documentHeadings = useMemo<DocumentHeading[]>(() => {
+    const matches = [...activeDocument.content.matchAll(/^(#{1,6})\s+(.+?)\s*#*\s*$/gm)];
+    return matches.map((match, index) => {
+      const level = match[1]!.length;
+      const boundary = matches.slice(index + 1).find((candidate) => candidate[1]!.length <= level);
+      const boundaryIndex = boundary ? matches.indexOf(boundary, index + 1) : matches.length;
+      return {
+        level,
+        title: match[2]!.trim(),
+        canCollapse: matches.slice(index + 1, boundaryIndex).some((candidate) => candidate[1]!.length > level),
+      };
+    });
+  }, [activeDocument.content]);
 
-  const updateActiveDocument = useCallback((markdown: string) => {
+  const updateDocument = useCallback((documentId: string, markdown: string) => {
     setTabs((currentTabs) => currentTabs.map((tab) => (
-      tab.id === activeTabId ? { ...tab, content: markdown, isDirty: true } : tab
+      tab.id === documentId ? { ...tab, content: markdown, assetFolder: tab.assetFolder ?? findAssetFolder(markdown), isDirty: true } : tab
     )));
-  }, [activeTabId]);
+  }, []);
+
+  const updateDocumentAssetFolder = useCallback((documentId: string, folder: string) => {
+    setTabs((currentTabs) => currentTabs.map((tab) => (
+      tab.id === documentId ? { ...tab, assetFolder: folder } : tab
+    )));
+  }, []);
+
+  const updateSelectedText = useCallback((text: string | null) => setSelectedText(text), []);
+
+  const activateDocument = useCallback((documentId: string) => {
+    setTabs((currentTabs) => currentTabs.map((tab) => (
+      tab.id === documentId ? { ...tab, initialContent: tab.content } : tab
+    )));
+    setActiveTabId(documentId);
+  }, []);
 
   const createNewDocument = useCallback(() => {
     const document = createDocument();
@@ -108,29 +176,33 @@ function App() {
   const addOpenedDocument = useCallback((markdown: string, path: string) => {
     const existingDocument = tabs.find((tab) => tab.path === path);
     if (existingDocument) {
-      setActiveTabId(existingDocument.id);
+      activateDocument(existingDocument.id);
       return;
     }
     const filename = path.split(/[\\/]/).pop() ?? "未命名文稿";
     const document = createDocument(markdown, path, filename.replace(/\.(md|markdown|mdx)$/i, ""));
+    if (tabs.length === 1 && isPristineWelcomeDocument(tabs[0]!)) {
+      const welcomeDocument = tabs[0]!;
+      setTabs([{ ...document, id: welcomeDocument.id }]);
+      setActiveTabId(welcomeDocument.id);
+      return;
+    }
     setTabs((currentTabs) => [...currentTabs, document]);
     setActiveTabId(document.id);
-  }, [tabs]);
+  }, [activateDocument, tabs]);
 
   const handleOpen = useCallback(async () => {
     const selectedPaths = await open({
       title: "打开 Markdown 文稿",
-      multiple: true,
+      multiple: false,
       filters: [{ name: "Markdown", extensions: ["md", "markdown", "mdx"] }],
     });
     if (!selectedPaths) return;
-    for (const path of Array.isArray(selectedPaths) ? selectedPaths : [selectedPaths]) {
-      try {
-        const markdown = await invoke<string>("read_markdown", { path });
-        addOpenedDocument(markdown, path);
-      } catch (error) {
-        window.alert(String(error));
-      }
+    try {
+      const markdown = await invoke<string>("read_markdown", { path: selectedPaths });
+      addOpenedDocument(markdown, selectedPaths);
+    } catch (error) {
+      window.alert(String(error));
     }
   }, [addOpenedDocument]);
 
@@ -159,7 +231,10 @@ function App() {
   const closeTab = useCallback((tabId: string) => {
     const tab = tabs.find((item) => item.id === tabId);
     if (!tab) return;
-    if (tab.isDirty && !window.confirm(`“${tab.title}”尚未保存。确定放弃修改并关闭吗？`)) return;
+    if (tab.isDirty) {
+      setPendingClose({ kind: "tab", tabId });
+      return;
+    }
     const remainingTabs = tabs.filter((item) => item.id !== tabId);
     if (remainingTabs.length === 0) {
       const freshDocument = createDocument();
@@ -170,6 +245,32 @@ function App() {
     setTabs(remainingTabs);
     if (tabId === activeTabId) setActiveTabId(remainingTabs[Math.max(0, tabs.indexOf(tab) - 1)]!.id);
   }, [activeTabId, tabs]);
+
+  const discardAndCloseTab = useCallback((tabId: string) => {
+    const tab = tabs.find((item) => item.id === tabId);
+    if (!tab) return;
+    const remainingTabs = tabs.filter((item) => item.id !== tabId);
+    if (remainingTabs.length === 0) {
+      const freshDocument = createDocument();
+      setTabs([freshDocument]);
+      setActiveTabId(freshDocument.id);
+      return;
+    }
+    setTabs(remainingTabs);
+    if (tabId === activeTabId) setActiveTabId(remainingTabs[Math.max(0, tabs.indexOf(tab) - 1)]!.id);
+  }, [activeTabId, tabs]);
+
+  const exitApplication = useCallback(() => {
+    void invoke("close_application");
+  }, []);
+
+  const requestAppClose = useCallback(() => {
+    if (tabs.some((tab) => tab.isDirty)) {
+      setPendingClose({ kind: "app" });
+      return;
+    }
+    exitApplication();
+  }, [exitApplication, tabs]);
 
   const runEditCommand = useCallback((command: "undo" | "redo" | "cut" | "copy" | "paste") => {
     document.execCommand(command);
@@ -183,8 +284,8 @@ function App() {
       if (await appWindow.isMaximized()) await appWindow.unmaximize();
       else await appWindow.maximize();
     }
-    if (action === "close") await appWindow.close();
-  }, []);
+    if (action === "close") requestAppClose();
+  }, [requestAppClose]);
 
   const startWindowDragging = useCallback((event: React.MouseEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
@@ -203,6 +304,16 @@ function App() {
     headings.item(headingIndex)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
+  const activeCollapsedHeadings = collapsedHeadings[activeDocument.id] ?? [];
+  const toggleHeadingCollapse = useCallback((headingIndex: number) => {
+    setCollapsedHeadings((current) => {
+      const collapsed = new Set(current[activeDocument.id] ?? []);
+      if (collapsed.has(headingIndex)) collapsed.delete(headingIndex);
+      else collapsed.add(headingIndex);
+      return { ...current, [activeDocument.id]: [...collapsed] };
+    });
+  }, [activeDocument.id]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void handleSave(); }
@@ -214,14 +325,29 @@ function App() {
   }, [createNewDocument, handleOpen, handleSave]);
 
   useEffect(() => {
-    const warnBeforeClosing = (event: BeforeUnloadEvent) => {
-      if (!tabs.some((tab) => tab.isDirty)) return;
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", warnBeforeClosing);
-    return () => window.removeEventListener("beforeunload", warnBeforeClosing);
+    tabsRef.current = tabs;
   }, [tabs]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void getCurrentWindow().onCloseRequested((event) => {
+      event.preventDefault();
+      if (tabsRef.current.some((tab) => tab.isDirty)) setPendingClose({ kind: "app" });
+      else exitApplication();
+    }).then((dispose) => { unlisten = dispose; });
+    return () => unlisten?.();
+  }, [exitApplication]);
+
+  const isHeadingVisibleInOutline = useCallback((headingIndex: number) => {
+    return !activeCollapsedHeadings.some((parentIndex) => {
+      if (headingIndex <= parentIndex) return false;
+      const parent = documentHeadings[parentIndex];
+      const heading = documentHeadings[headingIndex];
+      if (!parent || !heading || heading.level <= parent.level) return false;
+      const intervening = documentHeadings.slice(parentIndex + 1, headingIndex);
+      return !intervening.some((candidate) => candidate.level <= parent.level);
+    });
+  }, [activeCollapsedHeadings, documentHeadings]);
 
   useEffect(() => {
     const closeMenuOnOutsidePress = (event: PointerEvent) => {
@@ -286,7 +412,7 @@ function App() {
           <div className="workspace-tab-scroll">
             {tabs.map((tab) => (
               <div className={`workspace-tab-shell ${tab.id === activeTabId ? "is-active" : ""}`} key={tab.id}>
-                <button type="button" className="workspace-tab" role="tab" aria-selected={tab.id === activeTabId} onClick={() => setActiveTabId(tab.id)}>
+                <button type="button" className="workspace-tab" role="tab" aria-selected={tab.id === activeTabId} onClick={() => activateDocument(tab.id)}>
                   <span className={`workspace-tab-dirty ${tab.isDirty ? "is-visible" : ""}`} aria-label={tab.isDirty ? "未保存" : undefined} />
                   <span className="workspace-tab-label">{tab.title}</span>
                 </button>
@@ -299,36 +425,69 @@ function App() {
         <div className={`workspace-layout ${sidebarOpen ? "has-sidebar" : ""}`}>
           <aside className="app-rail" aria-label="工作区导航">
             <span className="rail-mark" title="Hakurou">H</span>
-            <button type="button" className={`rail-button ${sidebarOpen ? "is-active" : ""}`} onClick={() => setSidebarOpen((visible) => !visible)} title="文稿">▤</button>
+            <button type="button" className={`rail-button ${workspaceView === "writing" && sidebarOpen ? "is-active" : ""}`} onClick={() => { setWorkspaceView("writing"); setSidebarOpen((visible) => workspaceView === "writing" ? !visible : true); }} title="目录">▤</button>
+            <button type="button" className={`rail-button formula-rail-button ${workspaceView === "formula-lab" ? "is-active" : ""}`} onClick={() => setWorkspaceView("formula-lab")} title="公式实验台">∑</button>
           </aside>
           {sidebarOpen && <aside className="document-sidebar" aria-label="文稿列表">
             {documentHeadings.length > 0 && <>
               <div className="sidebar-heading sidebar-outline-heading"><span>目录</span></div>
               <div className="sidebar-outline-list">
-                {documentHeadings.map((heading, index) => (
-                  <button
-                    type="button"
-                    className={`sidebar-outline-item level-${Math.min(heading.level, 3)}`}
-                    key={`${heading.title}-${index}`}
-                    onClick={() => jumpToHeading(index)}
-                    title={heading.title}
-                  >
-                    {heading.title}
-                  </button>
+                {documentHeadings.map((heading, index) => isHeadingVisibleInOutline(index) && (
+                  <div className={`sidebar-outline-row level-${Math.min(heading.level, 3)}`} key={`${heading.title}-${index}`}>
+                    {heading.canCollapse && <button
+                      type="button"
+                      className="sidebar-outline-toggle"
+                      onClick={() => toggleHeadingCollapse(index)}
+                      title={activeCollapsedHeadings.includes(index) ? "展开此标题下内容" : "收起此标题下内容"}
+                      aria-label={activeCollapsedHeadings.includes(index) ? "展开此标题下内容" : "收起此标题下内容"}
+                    >{activeCollapsedHeadings.includes(index) ? "▸" : "▾"}</button>}
+                    <button
+                      type="button"
+                      className="sidebar-outline-item"
+                      onClick={() => jumpToHeading(index)}
+                      title={heading.title}
+                    >{heading.title}</button>
+                  </div>
                 ))}
               </div>
             </>}
           </aside>}
           <section className="editor-stage" aria-label="文档编辑区">
-            <WritingEditor key={activeDocument.id} initialContent={activeDocument.content} onContentChange={updateActiveDocument} />
+              <WritingEditor
+                key={activeDocument.id}
+                documentId={activeDocument.id}
+                initialContent={activeDocument.initialContent}
+                onContentChange={updateDocument}
+                documentPath={activeDocument.path}
+                assetFolder={activeDocument.assetFolder}
+                onAssetFolderChange={updateDocumentAssetFolder}
+                onSelectionChange={updateSelectedText}
+              />
+            {workspaceView === "formula-lab" && (
+              <div className="formula-lab-overlay"><FormulaLab onReturn={() => setWorkspaceView("writing")} /></div>
+            )}
           </section>
         </div>
 
         <footer className="statusbar">
-          <span>{activeDocument.isDirty ? "未保存修改" : activeDocument.path ? "已保存在本地" : "本地草稿"}</span>
-          <span>{activeDocument.content.trim().length} 字符</span>
+          <span className="save-state"><i className={`save-state-dot ${activeDocument.isDirty ? "is-dirty" : "is-saved"}`} />{activeDocument.isDirty ? "未保存修改" : activeDocument.path ? "已保存在本地" : "本地草稿"}{selectedText && <span className="selection-count">· 已选 {countWords(selectedText)} 字</span>}</span>
+          <span>{countWords(activeDocument.content)} 字 · {activeDocument.content.trim().length} 字符</span>
         </footer>
-      </main>
+        {pendingClose && <div className="close-confirm-backdrop" role="presentation">
+          <section className="close-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="close-confirm-title">
+            <h2 id="close-confirm-title">{pendingClose.kind === "app" ? "存在未保存文稿" : "文稿尚未保存"}</h2>
+            <p>{pendingClose.kind === "app" ? "存在未保存的修改。确定不保存并关闭 Hakurou 吗？" : `“${tabs.find((tab) => tab.id === pendingClose.tabId)?.title ?? "未命名文稿"}”的修改尚未保存。确定不保存并关闭此文稿吗？`}</p>
+            <div className="close-confirm-actions">
+              <button type="button" onClick={() => setPendingClose(null)}>返回编辑</button>
+              <button type="button" className="is-danger" onClick={() => {
+                if (pendingClose.kind === "tab") discardAndCloseTab(pendingClose.tabId);
+                else exitApplication();
+                setPendingClose(null);
+              }}>不保存并关闭</button>
+            </div>
+          </section>
+        </div>}
+    </main>
   );
 }
 
