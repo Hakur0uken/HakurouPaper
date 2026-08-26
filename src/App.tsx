@@ -1,7 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open, save } from "@tauri-apps/plugin-dialog";
 import { Editor, defaultValueCtx, rootCtx } from "@milkdown/core";
 import { $prose } from "@milkdown/utils";
 import { Plugin } from "@milkdown/prose/state";
@@ -12,7 +9,10 @@ import { listener, listenerCtx } from "@milkdown/plugin-listener";
 import { nord } from "@milkdown/theme-nord";
 import { EditorControls } from "./EditorControls";
 import { uiText, type UiLanguage, type UiText } from "./i18n";
-import { createImageAssetPlugins, formulaPlugins } from "./math";
+import { createImageAssetPlugins } from "./editor/image";
+import { formulaPlugins } from "./math";
+import { HAKUROU_SCHEMA_VERSION, collectDocumentImageAssets, createDocumentSchema, parseDocumentSidecar, serializeDocumentSidecar, type AssetV1, type DocumentV1 } from "./core/schema";
+import { platform } from "./platform";
 import { spreadsheetTablePastePlugin } from "./spreadsheetTablePaste";
 import { createTableDecorationPlugin, setTableDefaultStyle, tableDefaultStylePluginKey } from "./tableDecorations";
 import { createTextLayoutPlugin, setTextDefaultFirstLineIndent, textDefaultLayoutPluginKey } from "./textLayout";
@@ -36,6 +36,8 @@ type DocumentTab = {
   initialContent: string;
   isDirty: boolean;
   assetFolder: string | null;
+  document: DocumentV1;
+  assets: AssetV1[];
   formatSettings: DocumentFormatSettings;
 };
 
@@ -45,7 +47,7 @@ type WritingEditorProps = {
   onContentChange: (documentId: string, markdown: string) => void;
   documentPath: string | null;
   assetFolder: string | null;
-  onAssetFolderChange: (documentId: string, folder: string) => void;
+  onAssetImported: (documentId: string, asset: AssetV1, folder: string) => void;
   formatSettings: DocumentFormatSettings;
   onFormatChange: (documentId: string, settings: DocumentFormatSettings) => void;
   onSelectionChange: (text: string | null) => void;
@@ -65,11 +67,6 @@ type PendingClose = { kind: "tab"; tabId: string } | { kind: "app" } | null;
 type RecentFile = {
   path: string;
   title: string;
-};
-
-type StoredDocumentFormat = {
-  assetFolder: string;
-  content: string;
 };
 
 type AppearanceScope = "document" | "application";
@@ -108,7 +105,7 @@ function createDocument(
   markdown = starterDocument,
   path: string | null = null,
   title = "未命名文稿",
-  options: { assetFolder?: string | null; formatSettings?: DocumentFormatSettings } = {},
+  options: { assetFolder?: string | null; document?: DocumentV1; assets?: AssetV1[]; formatSettings?: DocumentFormatSettings } = {},
 ): DocumentTab {
   return {
     id: crypto.randomUUID(),
@@ -118,6 +115,8 @@ function createDocument(
     initialContent: markdown,
     isDirty: false,
     assetFolder: options.assetFolder ?? findAssetFolder(markdown),
+    document: options.document ?? createDocumentSchema(),
+    assets: options.assets ?? [],
     formatSettings: options.formatSettings ?? emptyDocumentFormatSettings(),
   };
 }
@@ -133,7 +132,7 @@ function countWords(markdown: string) {
   return cjkCharacters + latinWords;
 }
 
-function WritingEditor({ documentId, initialContent, onContentChange, documentPath, assetFolder, onAssetFolderChange, formatSettings, onFormatChange, onSelectionChange, text, tableStyle, firstLineIndent }: WritingEditorProps) {
+function WritingEditor({ documentId, initialContent, onContentChange, documentPath, assetFolder, onAssetImported, formatSettings, onFormatChange, onSelectionChange, text, tableStyle, firstLineIndent }: WritingEditorProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [editorView, setEditorView] = useState<import("@milkdown/prose/view").EditorView | null>(null);
   const unresolvedFormatSettingsRef = useRef(emptyDocumentFormatSettings());
@@ -181,7 +180,15 @@ function WritingEditor({ documentId, initialContent, onContentChange, documentPa
       .use(history)
       .use(listener)
       .use(formulaPlugins)
-      .use(createImageAssetPlugins(documentPath, assetFolder, (folder) => onAssetFolderChange(documentId, folder)))
+      .use(createImageAssetPlugins(
+        {
+          documentPath,
+          assetFolder,
+          assets: platform.assets,
+          onAssetImported: (asset, folder) => onAssetImported(documentId, asset, folder),
+          onImportError: (error) => window.alert(String(error)),
+        },
+      ))
       .use(createTableDecorationPlugin(currentFormatSettingsRef.current, tableStyle))
       .use(createTextLayoutPlugin(currentFormatSettingsRef.current, firstLineIndent))
       .use(editorControlsBridge);
@@ -192,7 +199,7 @@ function WritingEditor({ documentId, initialContent, onContentChange, documentPa
       void editor.destroy().catch(console.error);
       if (mount.contains(editorHost)) mount.replaceChildren();
     };
-  }, [documentId, documentPath, initialContent, onAssetFolderChange, onContentChange, onFormatChange]);
+  }, [documentId, documentPath, initialContent, onAssetImported, onContentChange, onFormatChange]);
 
   useEffect(() => {
     if (!editorView) return;
@@ -270,10 +277,12 @@ function App() {
     )));
   }, []);
 
-  const updateDocumentAssetFolder = useCallback((documentId: string, folder: string) => {
-    setTabs((currentTabs) => currentTabs.map((tab) => (
-      tab.id === documentId ? { ...tab, assetFolder: folder } : tab
-    )));
+  const updateDocumentAsset = useCallback((documentId: string, asset: AssetV1, assetFolder: string) => {
+    setTabs((currentTabs) => currentTabs.map((tab) => {
+      if (tab.id !== documentId) return tab;
+      const assets = [...tab.assets.filter((current) => current.assetId !== asset.assetId), asset];
+      return { ...tab, assets, assetFolder, isDirty: true };
+    }));
   }, []);
 
   const updateDocumentFormatSettings = useCallback((documentId: string, settings: DocumentFormatSettings) => {
@@ -365,14 +374,14 @@ function App() {
     });
   }, []);
 
-  const addOpenedDocument = useCallback((markdown: string, path: string, formatSettings: DocumentFormatSettings, assetFolder: string | null) => {
+  const addOpenedDocument = useCallback((markdown: string, path: string, formatSettings: DocumentFormatSettings, assetFolder: string | null, documentSchema: DocumentV1, assets: AssetV1[]) => {
     const existingDocument = tabs.find((tab) => tab.path === path);
     if (existingDocument) {
       activateDocument(existingDocument.id);
       return;
     }
     const filename = filenameFromPath(path);
-    const document = createDocument(markdown, path, filename.replace(/\.(md|markdown|mdx)$/i, ""), { formatSettings, assetFolder });
+    const document = createDocument(markdown, path, filename.replace(/\.(md|markdown|mdx)$/i, ""), { formatSettings, assetFolder, document: documentSchema, assets });
     if (tabs.length === 1 && isPristineWelcomeDocument(tabs[0]!)) {
       const welcomeDocument = tabs[0]!;
       setTabs([{ ...document, id: welcomeDocument.id }]);
@@ -385,10 +394,19 @@ function App() {
 
   const openDocumentPath = useCallback(async (path: string) => {
     try {
-      const markdown = await invoke<string>("read_markdown", { path });
+      const markdown = await platform.files.readMarkdown(path);
       const assetFolder = findAssetFolder(markdown);
-      const storedFormat = await invoke<StoredDocumentFormat | null>("read_document_format", { documentPath: path, assetFolder });
-      addOpenedDocument(markdown, path, storedFormat ? parseDocumentFormatSettings(storedFormat.content) : emptyDocumentFormatSettings(), storedFormat?.assetFolder ?? assetFolder);
+      const storedFormat = await platform.files.readDocumentFormat(path, assetFolder);
+      const parsedSidecar = parseDocumentSidecar(storedFormat?.content);
+      const assets = collectDocumentImageAssets(markdown, parsedSidecar.sidecar.assets);
+      addOpenedDocument(
+        markdown,
+        path,
+        parseDocumentFormatSettings(parsedSidecar.sidecar.format),
+        storedFormat?.assetFolder ?? assetFolder,
+        parsedSidecar.sidecar.document,
+        assets,
+      );
       rememberRecentFile(path);
     } catch (error) {
       window.alert(`无法打开文稿：${String(error)}`);
@@ -396,22 +414,21 @@ function App() {
   }, [addOpenedDocument, rememberRecentFile]);
 
   const handleOpen = useCallback(async () => {
-    const selectedPaths = await open({
+    const selectedPath = await platform.dialogs.openMarkdown({
       title: text.openMarkdownDocument,
-      multiple: false,
-      filters: [{ name: text.markdown, extensions: ["md", "markdown", "mdx"] }],
+      filter: { name: text.markdown, extensions: ["md", "markdown", "mdx"] },
     });
-    if (!selectedPaths) return;
-    await openDocumentPath(selectedPaths);
+    if (!selectedPath) return;
+    await openDocumentPath(selectedPath);
   }, [openDocumentPath, text.markdown, text.openMarkdownDocument]);
 
   const handleSave = useCallback(async () => {
     let targetPath = activeDocument.path;
     if (!targetPath) {
-      const chosenPath = await save({
+      const chosenPath = await platform.dialogs.saveMarkdown({
         title: text.saveMarkdownDocument,
         defaultPath: `${activeDocument.title || text.untitledDocument}.md`,
-        filters: [{ name: text.markdown, extensions: ["md"] }],
+        filter: { name: text.markdown, extensions: ["md"] },
       });
       if (!chosenPath) return;
       targetPath = chosenPath.endsWith(".md") ? chosenPath : `${chosenPath}.md`;
@@ -421,12 +438,14 @@ function App() {
         ...activeDocument.formatSettings,
         documentFingerprint: documentContentFingerprint(activeDocument.content),
       };
-      await invoke("write_markdown", { path: targetPath, content: activeDocument.content });
-      const storedFormat = await invoke<StoredDocumentFormat>("write_document_format", {
-        documentPath: targetPath,
-        assetFolder: activeDocument.assetFolder,
-        content: JSON.stringify(formatSettings, null, 2),
+      const sidecarContent = serializeDocumentSidecar({
+        schemaVersion: HAKUROU_SCHEMA_VERSION,
+        document: activeDocument.document,
+        assets: activeDocument.assets,
+        format: formatSettings,
       });
+      await platform.files.writeMarkdown(targetPath, activeDocument.content);
+      const storedFormat = await platform.files.writeDocumentFormat(targetPath, activeDocument.assetFolder, sidecarContent);
       const title = (targetPath.split(/[\\/]/).pop() ?? "未命名文稿").replace(/\.md$/i, "");
       setTabs((currentTabs) => currentTabs.map((tab) => (
         tab.id === activeDocument.id ? { ...tab, path: targetPath, title, initialContent: tab.content, assetFolder: storedFormat.assetFolder, formatSettings, isDirty: false } : tab
@@ -436,6 +455,39 @@ function App() {
       window.alert(String(error));
     }
   }, [activeDocument, rememberRecentFile, text.markdown, text.saveMarkdownDocument, text.untitledDocument]);
+
+  const handleSharePackage = useCallback(async () => {
+    if (!activeDocument.path) {
+      window.alert(text.sharePackageRequiresSave);
+      return;
+    }
+    const destinationDir = await platform.dialogs.selectDirectory({
+      title: text.chooseSharePackageDestination,
+    });
+    if (!destinationDir) return;
+
+    try {
+      const formatSettings = {
+        ...activeDocument.formatSettings,
+        documentFingerprint: documentContentFingerprint(activeDocument.content),
+      };
+      const sharePackage = await platform.files.exportSharePackage({
+        documentPath: activeDocument.path,
+        content: activeDocument.content,
+        assetFolder: activeDocument.assetFolder,
+        formatContent: serializeDocumentSidecar({
+          schemaVersion: HAKUROU_SCHEMA_VERSION,
+          document: activeDocument.document,
+          assets: activeDocument.assets,
+          format: formatSettings,
+        }),
+        destinationDir,
+      });
+      window.alert(text.sharePackageCreated(sharePackage.packagePath));
+    } catch (error) {
+      window.alert(String(error));
+    }
+  }, [activeDocument, text.chooseSharePackageDestination, text.sharePackageCreated, text.sharePackageRequiresSave]);
 
   const closeTab = useCallback((tabId: string) => {
     const tab = tabs.find((item) => item.id === tabId);
@@ -470,7 +522,7 @@ function App() {
   }, [activeTabId, tabs]);
 
   const exitApplication = useCallback(() => {
-    void invoke("close_application");
+    void platform.window.requestClose();
   }, []);
 
   const requestAppClose = useCallback(() => {
@@ -487,19 +539,15 @@ function App() {
   }, []);
 
   const handleWindowControl = useCallback(async (action: "minimize" | "maximize" | "close") => {
-    const appWindow = getCurrentWindow();
-    if (action === "minimize") await appWindow.minimize();
-    if (action === "maximize") {
-      if (await appWindow.isMaximized()) await appWindow.unmaximize();
-      else await appWindow.maximize();
-    }
+    if (action === "minimize") await platform.window.minimize();
+    if (action === "maximize") await platform.window.toggleMaximize();
     if (action === "close") requestAppClose();
   }, [requestAppClose]);
 
   const startWindowDragging = useCallback((event: React.MouseEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
     if (event.button !== 0 || target.closest("button, .app-menu-popup")) return;
-    void getCurrentWindow().startDragging();
+    void platform.window.startDragging();
   }, []);
 
   const toggleWindowMaximize = useCallback((event: React.MouseEvent<HTMLElement>) => {
@@ -539,8 +587,7 @@ function App() {
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    void getCurrentWindow().onCloseRequested((event) => {
-      event.preventDefault();
+    void platform.window.onCloseRequested(() => {
       if (tabsRef.current.some((tab) => tab.isDirty)) setPendingClose({ kind: "app" });
       else exitApplication();
     }).then((dispose) => { unlisten = dispose; });
@@ -657,6 +704,7 @@ function App() {
                 </div>
                 <span className="app-menu-separator" />
                 <button type="button" onClick={() => invokeMenuAction(() => void handleSave())}>{text.save} <kbd>Ctrl S</kbd></button>
+                <button type="button" onClick={() => invokeMenuAction(() => void handleSharePackage())}>{text.sharePackage}</button>
                 <span className="app-menu-separator" />
                 <button type="button" onClick={() => invokeMenuAction(() => closeTab(activeTabId))}>{text.closeDocument} <kbd>Ctrl W</kbd></button>
               </div>}
@@ -790,7 +838,7 @@ function App() {
                 onContentChange={updateDocument}
                 documentPath={activeDocument.path}
                 assetFolder={activeDocument.assetFolder}
-                onAssetFolderChange={updateDocumentAssetFolder}
+                onAssetImported={updateDocumentAsset}
                 formatSettings={activeDocument.formatSettings}
                 onFormatChange={updateDocumentFormatSettings}
                 onSelectionChange={updateSelectedText}

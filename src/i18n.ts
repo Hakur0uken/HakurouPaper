@@ -15,6 +15,10 @@ export type UiText = {
   recentFiles: string;
   noRecentFiles: string;
   save: string;
+  sharePackage: string;
+  chooseSharePackageDestination: string;
+  sharePackageRequiresSave: string;
+  sharePackageCreated: (path: string) => string;
   closeDocument: string;
   undo: string;
   redo: string;
@@ -131,6 +135,10 @@ export const uiText: Record<UiLanguage, UiText> = {
     recentFiles: "最近打开的文件",
     noRecentFiles: "暂无最近打开的文稿",
     save: "保存",
+    sharePackage: "创建分享包…",
+    chooseSharePackageDestination: "选择分享包保存位置",
+    sharePackageRequiresSave: "请先保存文稿，再创建分享包。",
+    sharePackageCreated: (path) => `已创建分享包：\n${path}`,
     closeDocument: "关闭文稿",
     undo: "撤销",
     redo: "重做",
@@ -245,6 +253,10 @@ export const uiText: Record<UiLanguage, UiText> = {
     recentFiles: "Recent Files",
     noRecentFiles: "No recently opened documents",
     save: "Save",
+    sharePackage: "Create Share Package…",
+    chooseSharePackageDestination: "Choose where to save the share package",
+    sharePackageRequiresSave: "Save the document before creating a share package.",
+    sharePackageCreated: (path) => `Share package created:\n${path}`,
     closeDocument: "Close Document",
     undo: "Undo",
     redo: "Redo",

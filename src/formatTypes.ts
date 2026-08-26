@@ -144,9 +144,9 @@ export function resolveFormatAnchor(doc: ProseNode, anchor: FormatAnchor) {
   return highestScore > 0 && best.length === 1 ? best[0]!.candidate.position : null;
 }
 
-export function parseDocumentFormatSettings(content: string): DocumentFormatSettings {
+export function parseDocumentFormatSettings(content: string | unknown): DocumentFormatSettings {
   try {
-    const value = JSON.parse(content) as Partial<DocumentFormatSettings>;
+    const value = (typeof content === "string" ? JSON.parse(content) : content) as Partial<DocumentFormatSettings>;
     const text = Array.isArray(value.text) ? value.text.flatMap((entry) => {
       const layout = entry?.layout;
       const anchor = entry?.anchor;

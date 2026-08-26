@@ -21,6 +21,8 @@ HakurouPaper 是一款面向长文档、论文和日常写作的本地优先 Mar
 - 在文档内或为今后打开的文档选择字体、正文字重、默认表格样式与默认缩进。
 - 在中文与 English 界面之间切换。
 - 粘贴本地图片；图片会随文稿保存在同级资源目录中。
+- 从 PowerPoint 粘贴图元时保留原始 EMF，同时用 PNG 预览显示；以后导出 Word 时可继续使用原图元。
+- 通过“文件 > 创建分享包…”将当前文稿与对应资源整理为独立文件夹，方便完整发送给他人。
 - 使用行内或块级 LaTeX 公式，并在需要时回到公式源码编辑。
 
 ### 文稿属于你
@@ -32,6 +34,7 @@ HakurouPaper 使用标准 Markdown 保存文字，因此文稿可继续用 Typor
 - 点击空白行左侧的 `+`，可以快速插入标题、列表、代码块、表格或分隔线。
 - 将鼠标移到图片或表格上，可显示相应的对象操作入口。
 - 在“查看”菜单中可调整当前文档或默认的字体、表格与首行缩进设置。
+- 在“文件”菜单选择“创建分享包…”，再选择保存位置；每次都会新建一个不会覆盖旧内容的分享文件夹。
 
 如有建议或问题，欢迎在 [GitHub Issues](https://github.com/Hakur0uken/HakurouPaper/issues) 中告诉我们。
 
@@ -54,6 +57,8 @@ Visit [Releases](https://github.com/Hakur0uken/HakurouPaper/releases) to downloa
 - Choose document or default fonts, body text weight, table style, and indentation.
 - Switch the interface between Chinese and English.
 - Paste local images; they are stored alongside the document in its resource folder.
+- Paste PowerPoint graphics while keeping the original EMF alongside a PNG preview, ready for future Word export.
+- Use **File > Create Share Package…** to collect the current document and its resources into a self-contained folder that is ready to send.
 - Write inline or display LaTeX equations, then return to the source whenever you need to edit them.
 
 ### Your documents stay yours
@@ -65,5 +70,6 @@ Text is saved as standard Markdown, so it remains usable in Typora, VS Code, Pan
 - Click the `+` beside an empty line to insert headings, lists, code blocks, tables, or a divider.
 - Move the pointer over an image or table to reveal its object controls.
 - Use the **View** menu to adjust the font, table style, or first-line indentation for the current document or as a default.
+- Choose **File > Create Share Package…**, then select a destination. Each export creates a new folder and never overwrites an earlier package.
 
 Suggestions and bug reports are welcome in [GitHub Issues](https://github.com/Hakur0uken/HakurouPaper/issues).

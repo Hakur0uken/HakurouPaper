@@ -1,22 +1,16 @@
 import katex from "katex";
+import "katex/dist/katex.min.css";
 import remarkMath from "remark-math";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { imageSchema } from "@milkdown/preset-commonmark";
 import { $inputRule, $node, $prose, $remark, $view } from "@milkdown/utils";
 import { InputRule } from "@milkdown/prose/inputrules";
 import { keymap } from "@milkdown/prose/keymap";
-import { NodeSelection, Plugin, Selection } from "@milkdown/prose/state";
+import { NodeSelection, Plugin } from "@milkdown/prose/state";
 import { Fragment, Slice, type Node as ProseNode } from "@milkdown/prose/model";
 import type { EditorView, NodeView } from "@milkdown/prose/view";
 
 type FormulaNodeViewOptions = {
   displayMode: boolean;
   className: string;
-};
-
-type SavedImage = {
-  relativePath: string;
-  assetFolder: string;
 };
 
 class FormulaNodeView implements NodeView {
@@ -259,104 +253,6 @@ export const formulaPasteRule = $prose((ctx) => new Plugin({
   },
 }));
 
-export const imageCursorNavigation = $prose(() => new Plugin({
-  props: {
-    handleKeyDown(view, event) {
-      if ((event.key !== "ArrowLeft" && event.key !== "ArrowRight") || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return false;
-      const { state } = view;
-      if (!state.selection.empty) return false;
-      const { $from } = state.selection;
-      const movingLeft = event.key === "ArrowLeft";
-      const neighbor = movingLeft ? $from.nodeBefore : $from.nodeAfter;
-      if (neighbor?.type.name !== "image") return false;
-
-      const target = movingLeft ? $from.pos - neighbor.nodeSize : $from.pos + neighbor.nodeSize;
-      event.preventDefault();
-      view.dispatch(state.tr.setSelection(Selection.near(state.doc.resolve(target), movingLeft ? -1 : 1)));
-      return true;
-    },
-  },
-}));
-
-function imageSourceForEditor(source: string, documentPath: string | null) {
-  if (!documentPath || /^(?:data:|https?:|asset:|blob:)/i.test(source)) return source;
-  const documentFolder = documentPath.replace(/[\\/][^\\/]+$/, "");
-  const relativeSource = source.replace(/^\.\//, "").replace(/\//g, "\\");
-  return convertFileSrc(`${documentFolder}\\${relativeSource}`);
-}
-
-function fileToBase64(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error("无法读取图片。"));
-    reader.onload = () => {
-      const dataUrl = String(reader.result ?? "");
-      const separator = dataUrl.indexOf(",");
-      resolve(separator >= 0 ? dataUrl.slice(separator + 1) : dataUrl);
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-export function createImageAssetPlugins(
-  documentPath: string | null,
-  assetFolder: string | null,
-  onAssetFolderChange: (folder: string) => void,
-) {
-  const localImageView = $view(imageSchema.node, () => (node) => {
-    const image = document.createElement("img");
-    image.contentEditable = "false";
-    image.draggable = true;
-    const updateImage = (nextNode: ProseNode) => {
-      image.src = imageSourceForEditor(String(nextNode.attrs.src ?? ""), documentPath);
-      image.alt = String(nextNode.attrs.alt ?? "");
-      image.title = String(nextNode.attrs.title ?? nextNode.attrs.alt ?? "");
-    };
-    updateImage(node);
-    return {
-      dom: image,
-      update(nextNode: ProseNode) {
-        if (nextNode.type !== node.type) return false;
-        updateImage(nextNode);
-        return true;
-      },
-    };
-  });
-
-  const localImagePaste = $prose((ctx) => new Plugin({
-    props: {
-      handlePaste(view, event) {
-        const image = Array.from(event.clipboardData?.files ?? []).find((file) => file.type.startsWith("image/"));
-        if (!image) return false;
-        event.preventDefault();
-        if (!documentPath) {
-          window.alert("请先保存文稿，再粘贴图片。保存后图片会自动放入同级 assets 文件夹。");
-          return true;
-        }
-        void (async () => {
-          try {
-            const dataBase64 = await fileToBase64(image);
-            const savedImage = await invoke<SavedImage>("save_pasted_image", {
-              documentPath,
-              dataBase64,
-              mimeType: image.type,
-              assetFolder,
-            });
-            onAssetFolderChange(savedImage.assetFolder);
-            const imageNode = imageSchema.type(ctx).create({ src: savedImage.relativePath, alt: "", title: "" });
-            view.dispatch(view.state.tr.replaceSelectionWith(imageNode));
-          } catch (error) {
-            window.alert(`无法粘贴图片：${String(error)}`);
-          }
-        })();
-        return true;
-      },
-    },
-  }));
-
-  return [localImageView, localImagePaste];
-}
-
 export const formulaPlugins = [
   formulaRemark.options,
   formulaRemark.plugin,
@@ -367,5 +263,4 @@ export const formulaPlugins = [
   inlineFormulaInputRule,
   blockFormulaEnterRule,
   formulaPasteRule,
-  imageCursorNavigation,
 ];
