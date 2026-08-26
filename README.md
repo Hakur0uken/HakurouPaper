@@ -1,63 +1,69 @@
 # HakurouPaper
 
-HakurouPaper 是一款面向长文档与论文写作的本地优先 Markdown 编辑器。它希望把常用写作体验做得像普通文档软件一样直接，同时始终把文稿保留为可被 Typora、VS Code、Pandoc 等工具继续使用的标准 Markdown 文件。
+[中文](#中文) · [English](#english)
 
-## 设计追求
+## 中文
 
-* **极简而不简陋**：减少常驻工具栏和装饰，用克制的细线、固定状态栏与聚焦式编辑区组织界面。
-* **低门槛 Markdown**：不要求记忆全部 Markdown 语法。标题、列表、加粗、斜体、删除线和代码等常用格式可通过悬浮菜单完成。
-* **为学术写作准备**：公式、资源管理、Pandoc 导出、引用与版本留痕将沿着可维护、可验证的路径逐步加入。
+### 为专注写作而生的本地 Markdown 编辑器
 
-## 当前已实现
+HakurouPaper 是一款面向长文档、论文和日常写作的本地优先 Markdown 编辑器。它把常用排版和对象操作做得像普通文档软件一样直接，同时让你的文稿始终保留为干净、通用的 Markdown 文件。
 
-* 自绘桌面菜单栏、窗口控制、扁平化左侧工具栏、多文稿标签与未保存状态提示；顶栏可在中文与 English 界面间切换，选择仅保存在本机，不改动文稿正文。
-* “查看”菜单按文档与默认两个作用域提供字体、表格和首行缩进：字体可选优雅、现代（Inter / HarmonyOS Sans）、标准（Times New Roman / 宋体）或自定义本机字体；表格可选普通表格或三线表；缩进可选无缩进或首行缩进 2 字符。文档设置优先于默认值；自定义字体留空时沿用当前字体，因而可单独调整正文字重，不影响标题。
-* 新建、打开、显式保存、关闭文稿；关闭有未保存修改的文稿或软件时提供确认保护。
-* 文件菜单提供本机“最近打开”列表：最多保留 10 个文稿，延迟悬停展开后稳定停留，点击菜单外部才收起。
-* 标准 Markdown 编辑、撤销/重做、固定状态栏、字符数与中日韩字符/拉丁词组合的字数统计。
-* 左侧标题目录、标题跳转与目录树折叠。
-* 行首块菜单：正文、H1–H3、项目列表、编号列表、代码块；代码块使用稍深底色区分正文；选区格式菜单：加粗、斜体、删除线、行内代码。
-* 空白行按需出现“+”插入入口：可转换正文、H1–H3、两类列表和代码块，也可插入标准 Markdown 表格与分隔线；表格行列网格需停留约 250ms 才展开，展开后仅点击外部才收起，并在每次重新打开时重置为默认尺寸。
-* 文稿末尾保留一次性“可落笔区”：点击最后一个内容块下方即可继续写作；末尾已有空行时只聚焦，不重复追加空段落。
-* KaTeX 公式支持：行内 `$...$`、块级 `$$...$$`、粘贴公式识别，以及双击公式回到 LaTeX 源码编辑。
-* 本地图片粘贴：已保存文稿中的图片自动写入同级 `assets/<文稿资源标识>/`，并插入相对路径。
-* 图片选区外框、跨图片拖选识别；图片暂不弹出文字格式菜单，避免误操作。
-* 图片与表格对象菜单：鼠标进入对象即在内容左侧显示控制柄；可复制、剪切、删除，表格还可全选、粘贴 Excel / Google Sheets 的文本表格、切换标题行/标题列及转换为三线表；浮窗会自动避开窗口边界。
-* 表格标题行/列、三线表、文本/图片对齐与首行缩进，以及文档字体/表格默认设置等 HakurouPaper 展示设置写入同级 `assets/<文稿资源标识>/hakurou.json`，Markdown 正文仍保持标准语法；软件默认值仅保存在本机。
-* 行首与对象控制柄具备短暂离开缓冲，鼠标从正文移向控制柄时不会闪退。
-* Windows Release 打包：提供 NSIS `.exe` 安装包与 MSI 安装包。
+### 下载与安装
 
-## 正在完善与后续计划
+前往 [Releases](https://github.com/Hakur0uken/HakurouPaper/releases) 下载最新的 Windows 安装包。当前版本可下载 `HakurouPaper_0.2.0_x64-setup.exe`，双击安装后即可使用。
 
-* 公式打开已有文稿、保存重开与异常公式的完整回归测试。
-* 图片资源的“另存为 / 自包含分享包”导出：将 Markdown 与对应 `assets/` 一起交付。
-* Pandoc 深度集成：支持指定 `.docx` 模板导出 Word。
-* Zotero / BibTeX 文献检索与引用插入。
-* 更完整的浮动格式菜单：颜色、可访问的快捷说明与更丰富的块类型。
-* 表格的增删行列、单元格合并与表格快捷编辑。
-* 本地用户名、修订留痕（Track Changes）与修改历史。
-* GitHub / Gitee 可选同步、手动 Commit / Push / Pull、版本浏览与安全恢复。
-* 长文档性能、跨平台打包和发布前完整验收。
+### 你可以用它做什么
 
-## 开发
+- 用可视化菜单完成标题、列表、加粗、斜体、删除线和代码等常用 Markdown 排版。
+- 直接创建表格，或从 Excel、Google Sheets 复制内容并粘贴为表格。
+- 为表格设置标题行、标题列，或切换为适合论文展示的三线表。
+- 调整文字和图片的左对齐、居中、右对齐；为正文设置首行缩进。
+- 在文档内或为今后打开的文档选择字体、正文字重、默认表格样式与默认缩进。
+- 在中文与 English 界面之间切换。
+- 粘贴本地图片；图片会随文稿保存在同级资源目录中。
+- 使用行内或块级 LaTeX 公式，并在需要时回到公式源码编辑。
 
-```bash
-npm install
-npm run tauri dev
-```
+### 文稿属于你
 
-构建 Windows 发布包：
+HakurouPaper 使用标准 Markdown 保存文字，因此文稿可继续用 Typora、VS Code、Pandoc 等工具打开和处理。图片及少量展示设置会保存在文稿旁的 `assets` 资源目录中，不会把私有格式写进 Markdown 正文。
 
-```bash
-npm run tauri build
-```
+### 写作时的小提示
 
-构建结果通常位于 `src-tauri/target/release/bundle/`。
+- 点击空白行左侧的 `+`，可以快速插入标题、列表、代码块、表格或分隔线。
+- 将鼠标移到图片或表格上，可显示相应的对象操作入口。
+- 在“查看”菜单中可调整当前文档或默认的字体、表格与首行缩进设置。
 
-## 项目文档
+如有建议或问题，欢迎在 [GitHub Issues](https://github.com/Hakur0uken/HakurouPaper/issues) 中告诉我们。
 
-* [`docs/设计原则.md`](docs/设计原则.md)：产品与交互的上层约束。
-* [`docs/进展记录.md`](docs/进展记录.md)：按时间记录的实施、验证与问题修复。
-* [`docs/验收原则.md`](docs/验收原则.md)：功能交付前的验证标准。
-* [`docs/长期协作手册.md`](docs/长期协作手册.md)：任务拆分、决策与后续推进方式。
-* [`docs/环境与位置说明.md`](docs/环境与位置说明.md)：项目目录、源码入口、开发命令、运行/发布产物与资源位置。
+## English
+
+### A local-first Markdown editor for focused writing
+
+HakurouPaper is a local-first Markdown editor for long-form writing, academic work, and everyday notes. It brings familiar document-editing interactions to Markdown while keeping your files clean, portable, and yours.
+
+### Download and install
+
+Visit [Releases](https://github.com/Hakur0uken/HakurouPaper/releases) to download the latest Windows installer. For the current release, download `HakurouPaper_0.2.0_x64-setup.exe` and run it to install the app.
+
+### What you can do
+
+- Format headings, lists, bold, italic, strikethrough, and code with visual menus.
+- Create tables directly, or paste table data from Excel and Google Sheets.
+- Set a header row or column, and switch tables to a publication-friendly three-line style.
+- Align text and images left, center, or right, and apply a first-line indent to body text.
+- Choose document or default fonts, body text weight, table style, and indentation.
+- Switch the interface between Chinese and English.
+- Paste local images; they are stored alongside the document in its resource folder.
+- Write inline or display LaTeX equations, then return to the source whenever you need to edit them.
+
+### Your documents stay yours
+
+Text is saved as standard Markdown, so it remains usable in Typora, VS Code, Pandoc, and other Markdown tools. Images and a small amount of display information are kept beside the document in its `assets` folder rather than embedded as private syntax in the Markdown text.
+
+### Helpful shortcuts in the editor
+
+- Click the `+` beside an empty line to insert headings, lists, code blocks, tables, or a divider.
+- Move the pointer over an image or table to reveal its object controls.
+- Use the **View** menu to adjust the font, table style, or first-line indentation for the current document or as a default.
+
+Suggestions and bug reports are welcome in [GitHub Issues](https://github.com/Hakur0uken/HakurouPaper/issues).
