@@ -1,6 +1,6 @@
 [package]
 name = "hakurou-paper"
-version = "0.1.1"
+version = "0.2.0"
 description = "HakurouPaper is a local-first Markdown writing workspace."
 authors = ["HakurouPaper Contributors"]
 edition = "2021"

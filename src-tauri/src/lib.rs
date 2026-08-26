@@ -16,6 +16,13 @@ struct SavedImage {
     asset_folder: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredDocumentFormat {
+    asset_folder: String,
+    content: String,
+}
+
 fn is_markdown_path(path: &Path) -> bool {
     matches!(
         path.extension().and_then(|extension| extension.to_str()),
@@ -78,6 +85,55 @@ fn stable_path_suffix(path: &Path) -> String {
     format!("{hash:08x}")[..6].to_string()
 }
 
+fn document_asset_folder(document_path: &Path, asset_folder: Option<String>) -> String {
+    let stem = document_path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("document");
+    asset_folder
+        .as_deref()
+        .map(safe_asset_folder)
+        .unwrap_or_else(|| format!("{}-{}", safe_asset_folder(stem), stable_path_suffix(document_path)))
+}
+
+#[tauri::command]
+fn read_document_format(
+    app: tauri::AppHandle,
+    document_path: String,
+    asset_folder: Option<String>,
+) -> Result<Option<StoredDocumentFormat>, String> {
+    let document_path = PathBuf::from(document_path);
+    if !is_markdown_path(&document_path) {
+        return Err("格式设置必须关联到 Markdown 文稿。".into());
+    }
+    let document_dir = document_path.parent().ok_or("无法确定文稿所在目录。")?;
+    allow_asset_directory(&app, document_dir)?;
+    let folder = document_asset_folder(&document_path, asset_folder);
+    let format_path = document_dir.join("assets").join(&folder).join("hakurou.json");
+    if !format_path.is_file() {
+        return Ok(None);
+    }
+    let content = std::fs::read_to_string(format_path).map_err(|error| format!("无法读取文稿格式设置：{error}"))?;
+    Ok(Some(StoredDocumentFormat { asset_folder: folder, content }))
+}
+
+#[tauri::command]
+fn write_document_format(
+    app: tauri::AppHandle,
+    document_path: String,
+    asset_folder: Option<String>,
+    content: String,
+) -> Result<StoredDocumentFormat, String> {
+    let document_path = PathBuf::from(document_path);
+    if !is_markdown_path(&document_path) {
+        return Err("格式设置必须关联到 Markdown 文稿。".into());
+    }
+    let document_dir = document_path.parent().ok_or("无法确定文稿所在目录。")?;
+    let folder = document_asset_folder(&document_path, asset_folder);
+    let asset_dir = document_dir.join("assets").join(&folder);
+    std::fs::create_dir_all(&asset_dir).map_err(|error| format!("无法创建文稿资源目录：{error}"))?;
+    allow_asset_directory(&app, document_dir)?;
+    std::fs::write(asset_dir.join("hakurou.json"), &content).map_err(|error| format!("无法保存文稿格式设置：{error}"))?;
+    Ok(StoredDocumentFormat { asset_folder: folder, content })
+}
+
 fn image_extension(mime_type: &str) -> &'static str {
     match mime_type {
         "image/jpeg" | "image/jpg" => "jpg",
@@ -101,11 +157,7 @@ fn save_pasted_image(
         return Err("图片必须关联到已保存的 Markdown 文稿。".into());
     }
     let document_dir = document_path.parent().ok_or("无法确定文稿所在目录。")?;
-    let stem = document_path.file_stem().and_then(|stem| stem.to_str()).unwrap_or("document");
-    let folder = asset_folder
-        .as_deref()
-        .map(safe_asset_folder)
-        .unwrap_or_else(|| format!("{}-{}", safe_asset_folder(stem), stable_path_suffix(&document_path)));
+    let folder = document_asset_folder(&document_path, asset_folder);
     let image_bytes = BASE64.decode(data_base64).map_err(|error| format!("无法读取剪贴板图片：{error}"))?;
     if image_bytes.is_empty() {
         return Err("剪贴板中没有可保存的图片内容。".into());
@@ -130,7 +182,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![read_markdown, write_markdown, save_pasted_image, close_application])
+        .invoke_handler(tauri::generate_handler![read_markdown, write_markdown, read_document_format, write_document_format, save_pasted_image, close_application])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
