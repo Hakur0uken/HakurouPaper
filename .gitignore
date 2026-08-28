@@ -27,7 +27,8 @@ dist-ssr
 docs/*.md
 
 # Local tooling: Pandoc binary kept locally for the DOCX export feature.
-pandoc/
+# Keep this anchored: the application source lives in src/features/pandoc/.
+/pandoc/
 
 # One-off MathType/Pandoc investigations can contain Office documents,
 # extracted COM wrappers and vendored toolchains.  Their reproducible source

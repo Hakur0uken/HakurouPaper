@@ -78,8 +78,6 @@ export type UiText = {
   localDraft: string;
   selectedCount: (count: number) => string;
   documentStats: (words: number, characters: number) => string;
-  pageZoom: (percent: number) => string;
-  resetPageZoom: string;
   documentDelivery: string;
   documentDeliveryDescription: string;
   pandocChecking: string;
@@ -250,8 +248,6 @@ export const uiText: Record<UiLanguage, UiText> = {
     localDraft: "本地草稿",
     selectedCount: (count) => `· 已选 ${count} 字`,
     documentStats: (words, characters) => `${words} 字 · ${characters} 字符`,
-    pageZoom: (percent) => `页面缩放 ${percent}%`,
-    resetPageZoom: "还原页面缩放",
     documentDelivery: "文稿交付",
     documentDeliveryDescription: "通过 Pandoc 生成交付用 Word 文档；排版由所选 Word 模板决定，不映射编辑器展示设置。",
     pandocChecking: "正在检测 Pandoc…",
@@ -422,8 +418,6 @@ export const uiText: Record<UiLanguage, UiText> = {
     localDraft: "Local draft",
     selectedCount: (count) => ` · ${count} selected`,
     documentStats: (words, characters) => `${words} words · ${characters} characters`,
-    pageZoom: (percent) => `Page zoom ${percent}%`,
-    resetPageZoom: "Reset page zoom",
     documentDelivery: "Document Delivery",
     documentDeliveryDescription: "Create a delivery-ready Word document with Pandoc. The selected Word template controls layout; editor display settings are not exported.",
     pandocChecking: "Checking Pandoc…",

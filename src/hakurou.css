@@ -307,9 +307,6 @@ button { font: inherit; }
 .statusbar { display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-top: 1px solid #e4e1da; color: #938e85; background: #f4f3ef; font-size: 11px; }
 .save-state { display: inline-flex; align-items: center; gap: 6px; }
 .status-document-stats { display: inline-flex; align-items: center; gap: 6px; }
-.status-zoom-reset { display: grid; width: 18px; height: 18px; place-items: center; border: 0; padding: 0; color: #66625a; background: transparent; cursor: pointer; font-family: Arial, sans-serif; font-size: 16px; line-height: 1; }
-.status-zoom-reset:hover { color: #31503b; background: #e7e5df; }
-.status-zoom-reset.is-default { opacity: .55; }
 .save-state-dot { width: 6px; height: 6px; border-radius: 50%; background: #6f966f; }
 .save-state-dot.is-dirty { background: #bd5d54; }
 .close-confirm-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(36, 35, 32, .18); }

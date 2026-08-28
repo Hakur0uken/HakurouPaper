@@ -58,7 +58,6 @@ type WritingEditorProps = {
   text: UiText;
   tableStyle: TableStyle;
   firstLineIndent: boolean;
-  editorZoom: number;
 };
 
 type DocumentHeading = {
@@ -85,7 +84,6 @@ type CustomFontDraft = {
 
 const recentFilesStorageKey = "hakurou.recent-files";
 const uiLanguageStorageKey = "hakurou.ui-language";
-const editorZoomStorageKey = "hakurou.editor-zoom";
 
 function filenameFromPath(path: string) {
   return path.split(/[\\/]/).pop() ?? "未命名文稿";
@@ -101,11 +99,6 @@ function readRecentFiles(): RecentFile[] {
   } catch {
     return [];
   }
-}
-
-function readEditorZoom() {
-  const stored = Number(window.localStorage.getItem(editorZoomStorageKey));
-  return Number.isFinite(stored) && stored >= 0.7 && stored <= 1.6 ? stored : 1;
 }
 
 function findAssetFolder(markdown: string) {
@@ -143,7 +136,7 @@ function countWords(markdown: string) {
   return cjkCharacters + latinWords;
 }
 
-function WritingEditor({ documentId, initialContent, onContentChange, documentPath, assetFolder, assets, onAssetImported, onAssetResize, formatSettings, onFormatChange, onSelectionChange, text, tableStyle, firstLineIndent, editorZoom }: WritingEditorProps) {
+function WritingEditor({ documentId, initialContent, onContentChange, documentPath, assetFolder, assets, onAssetImported, onAssetResize, formatSettings, onFormatChange, onSelectionChange, text, tableStyle, firstLineIndent }: WritingEditorProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [editorView, setEditorView] = useState<import("@milkdown/prose/view").EditorView | null>(null);
   const unresolvedFormatSettingsRef = useRef(emptyDocumentFormatSettings());
@@ -226,7 +219,7 @@ function WritingEditor({ documentId, initialContent, onContentChange, documentPa
     editorView.dispatch(editorView.state.tr.setMeta(textDefaultLayoutPluginKey, setTextDefaultFirstLineIndent(firstLineIndent)));
   }, [editorView, firstLineIndent]);
 
-  return <div className="writing-editor-root" style={{ zoom: editorZoom }}><div ref={mountRef} data-milkdown-root="true" /><EditorControls view={editorView} onSelectionChange={onSelectionChange} text={text} /></div>;
+  return <div className="writing-editor-root"><div ref={mountRef} data-milkdown-root="true" /><EditorControls view={editorView} onSelectionChange={onSelectionChange} text={text} /></div>;
 }
 
 function App() {
@@ -234,7 +227,6 @@ function App() {
   const [activeTabId, setActiveTabId] = useState(() => tabs[0]!.id);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [language, setLanguage] = useState<UiLanguage>(() => window.localStorage.getItem(uiLanguageStorageKey) === "en" ? "en" : "zh");
-  const [editorZoom, setEditorZoom] = useState(readEditorZoom);
   const [applicationAppearance, setApplicationAppearance] = useState<ApplicationAppearanceSettings>(readApplicationAppearance);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [collapsedHeadings, setCollapsedHeadings] = useState<Record<string, number[]>>({});
@@ -281,10 +273,6 @@ function App() {
   }, [language]);
 
   useEffect(() => {
-    window.localStorage.setItem(editorZoomStorageKey, String(editorZoom));
-  }, [editorZoom]);
-
-  useEffect(() => {
     writeApplicationAppearance(applicationAppearance);
   }, [applicationAppearance]);
 
@@ -325,22 +313,6 @@ function App() {
       return { ...tab, assets, isDirty: true };
     }));
   }, []);
-
-  const changeEditorZoom = useCallback((event: WheelEvent) => {
-    if (!event.ctrlKey) return;
-    event.preventDefault();
-    setEditorZoom((current) => {
-      const step = event.deltaY < 0 ? 0.1 : -0.1;
-      return Math.round(Math.min(1.6, Math.max(0.7, current + step)) * 10) / 10;
-    });
-  }, []);
-
-  useEffect(() => {
-    const stage = editorStageRef.current;
-    if (!stage) return;
-    stage.addEventListener("wheel", changeEditorZoom, { passive: false });
-    return () => stage.removeEventListener("wheel", changeEditorZoom);
-  }, [activeFeatureId, changeEditorZoom]);
 
   const toggleDocumentSidebar = useCallback(() => {
     setActiveFeatureId(null);
@@ -924,7 +896,6 @@ function App() {
                 text={text}
                 tableStyle={effectiveDocumentDefaults.tableStyle}
                 firstLineIndent={effectiveDocumentDefaults.firstLineIndent}
-                editorZoom={editorZoom}
               />
           </section>}
         </div>
@@ -933,13 +904,6 @@ function App() {
           <span className="save-state"><i className={`save-state-dot ${activeDocument.isDirty ? "is-dirty" : "is-saved"}`} />{activeDocument.isDirty ? text.unsavedChanges : activeDocument.path ? text.savedLocally : text.localDraft}{selectedText && <span className="selection-count">{text.selectedCount(countWords(selectedText))}</span>}</span>
           <span className="status-document-stats">
             <span>{text.documentStats(countWords(activeDocument.content), activeDocument.content.trim().length)}</span>
-            <button
-              type="button"
-              className={`status-zoom-reset ${editorZoom === 1 ? "is-default" : ""}`}
-              onClick={() => setEditorZoom(1)}
-              title={`${text.pageZoom(Math.round(editorZoom * 100))} · ${text.resetPageZoom}`}
-              aria-label={text.resetPageZoom}
-            >↻</button>
           </span>
         </footer>
         {pendingClose && <div className="close-confirm-backdrop" role="presentation">
