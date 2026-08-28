@@ -40,6 +40,16 @@ function AlignmentIcon({ alignment }: { alignment: TextAlignment }) {
   return <span className={`alignment-icon alignment-icon-${alignment}`} aria-hidden="true"><span /></span>;
 }
 
+function CodeIcon() {
+  return <svg className="code-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+    <path d="M5.75 4.25 2.5 8l3.25 3.75M10.25 4.25 13.5 8l-3.25 3.75M9 3 7 13" />
+  </svg>;
+}
+
+function CodeBlockLabel({ label }: { label: string }) {
+  return <span className="code-block-label"><CodeIcon />{label}</span>;
+}
+
 export function EditorControls({ view, onSelectionChange, text }: EditorControlsProps) {
   const [block, setBlock] = useState<BlockTarget | null>(null);
   const [blockMenuOpen, setBlockMenuOpen] = useState(false);
@@ -335,6 +345,22 @@ export function EditorControls({ view, onSelectionChange, text }: EditorControls
     return "T";
   })();
 
+  const syncBlockControl = (kind: BlockAction, target: BlockTarget) => {
+    setBlock((current) => current && current.position === target.position ? { ...current, kind } : current);
+    requestAnimationFrame(() => {
+      if (!view) return;
+      const selectedDom = view.domAtPos(view.state.selection.from).node;
+      const element = selectedDom instanceof Element ? selectedDom : selectedDom.parentElement;
+      const blockElement = element?.closest("p, h1, h2, h3, h4, h5, h6, blockquote, pre, li");
+      if (!blockElement || !view.dom.contains(blockElement)) return;
+      setBlock({
+        position: view.posAtDOM(blockElement, 0),
+        kind,
+        ...fitControlHandle(blockElement.getBoundingClientRect()),
+      });
+    });
+  };
+
   const runBlockCommand = (action: BlockAction, target = block) => {
     if (!view || !target) return;
     setSelectionAtBlock(view, target.position);
@@ -343,6 +369,7 @@ export function EditorControls({ view, onSelectionChange, text }: EditorControls
       if (action === "bullet" || action === "ordered") liftListItem(nodes.list_item!)(view.state, view.dispatch, view);
       else if (action !== "paragraph") setBlockType(nodes.paragraph!)(view.state, view.dispatch, view);
       view.focus();
+      if (target === block) syncBlockControl("paragraph", target);
       setBlockMenuOpen(false);
       setInsertMenuOpen(false);
       return;
@@ -353,6 +380,7 @@ export function EditorControls({ view, onSelectionChange, text }: EditorControls
     if (action === "ordered") wrapInList(nodes.ordered_list!)(view.state, view.dispatch, view);
     if (action === "code") setBlockType(nodes.code_block!)(view.state, view.dispatch, view);
     view.focus();
+    if (target === block) syncBlockControl(action, target);
     setBlockMenuOpen(false);
     setInsertMenuOpen(false);
   };
@@ -568,7 +596,7 @@ export function EditorControls({ view, onSelectionChange, text }: EditorControls
       <div className="insert-block-row">
         <button type="button" title={text.bulletListTooltip} onClick={() => runBlockCommand("bullet", { ...emptyBlock, kind: "paragraph" })}>{text.bulletList}</button>
         <button type="button" title={text.orderedListTooltip} onClick={() => runBlockCommand("ordered", { ...emptyBlock, kind: "paragraph" })}>{text.orderedList}</button>
-        <button type="button" title={text.codeBlockTooltip} onClick={() => runBlockCommand("code", { ...emptyBlock, kind: "paragraph" })}>{text.codeBlock}</button>
+        <button type="button" title={text.codeBlockTooltip} onClick={() => runBlockCommand("code", { ...emptyBlock, kind: "paragraph" })}><CodeBlockLabel label={text.codeBlock} /></button>
       </div>
       <div className="insert-menu-divider" />
       <button type="button" className="insert-menu-item" onMouseEnter={openTablePickerAfterDelay} onMouseLeave={cancelPendingTablePicker} onClick={openTablePickerAfterDelay}>
@@ -606,7 +634,7 @@ export function EditorControls({ view, onSelectionChange, text }: EditorControls
       <div className="block-menu-row">
         <button className={block.kind === "bullet" ? "is-active" : ""} type="button" title={text.bulletListTooltip} onClick={() => runBlockCommand("bullet")}>{text.bulletList}</button>
         <button className={block.kind === "ordered" ? "is-active" : ""} type="button" title={text.orderedListTooltip} onClick={() => runBlockCommand("ordered")}>{text.orderedList}</button>
-        <button className={block.kind === "code" ? "is-active" : ""} type="button" title={text.codeBlockTooltip} onClick={() => runBlockCommand("code")}>{text.codeBlock}</button>
+        <button className={block.kind === "code" ? "is-active" : ""} type="button" title={text.codeBlockTooltip} onClick={() => runBlockCommand("code")}><CodeBlockLabel label={text.codeBlock} /></button>
       </div>
     </div>}
     {selectionMenu && <div className="selection-toolbar" style={{ left: selectionMenu.x, top: selectionMenu.y }} onMouseDown={(event) => event.preventDefault()}>
@@ -615,7 +643,7 @@ export function EditorControls({ view, onSelectionChange, text }: EditorControls
       <button className={isMarkActive("strike") ? "is-active" : ""} type="button" title={text.strikethroughTooltip} onClick={() => runMarkCommand("strike")}><s>S</s></button>
       <span className="selection-toolbar-divider" />
       <button type="button" className={`selection-align-button ${textLayoutMenuOpen ? "is-active" : ""}`} title={text.alignmentAndIndent} aria-label={text.alignmentAndIndent} onClick={() => setTextLayoutMenuOpen((open) => !open)}><AlignmentIcon alignment={selectedTextLayout?.alignment ?? "left"} /></button>
-      <button className={isMarkActive("code") ? "is-active" : ""} type="button" title={text.inlineCodeTooltip} onClick={() => runMarkCommand("code")}>‹/›</button>
+      <button className={isMarkActive("code") ? "is-active" : ""} type="button" title={text.inlineCodeTooltip} aria-label={text.inlineCodeTooltip} onClick={() => runMarkCommand("code")}><CodeIcon /></button>
     </div>}
     {selectionMenu && textLayoutMenuOpen && textLayoutMenuPosition && <div className="text-layout-menu" style={textLayoutMenuPosition} onMouseDown={(event) => event.preventDefault()}>
       <button type="button" className={selectedTextLayout?.alignment === "left" ? "is-active" : ""} onClick={() => runTextLayoutCommand({ type: "alignment", value: "left" })}><span className="alignment-menu-label"><AlignmentIcon alignment="left" />{text.leftAlign}</span>{selectedTextLayout?.alignment === "left" && <span aria-hidden="true">✓</span>}</button>

@@ -25,3 +25,13 @@ dist-ssr
 
 # Private project notes: retained locally and never published.
 docs/*.md
+
+# Local tooling: Pandoc binary kept locally for the DOCX export feature.
+pandoc/
+
+# One-off MathType/Pandoc investigations can contain Office documents,
+# extracted COM wrappers and vendored toolchains.  Their reproducible source
+# lives under research/, while generated evidence stays local.
+.tmp-*
+research/**/raw-artifacts/
+**/__pycache__/

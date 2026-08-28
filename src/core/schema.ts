@@ -6,12 +6,17 @@ export type AssetResourceV1 = {
   mimeType?: string;
 };
 
+export type ImageDisplayV1 = {
+  width: number;
+};
+
 export type AssetV1 = {
   schemaVersion: typeof HAKUROU_SCHEMA_VERSION;
   assetId: string;
   kind: "image";
   source: AssetResourceV1;
   preview?: AssetResourceV1;
+  display?: ImageDisplayV1;
 };
 
 export type DocumentV1 = {
@@ -75,12 +80,17 @@ function parseAsset(value: unknown): AssetV1 | null {
   if (!source) return null;
   const preview = value.preview === undefined ? undefined : parseResource(value.preview);
   if (value.preview !== undefined && !preview) return null;
+  const width = isRecord(value.display) && typeof value.display.width === "number" && Number.isFinite(value.display.width)
+    ? Math.round(value.display.width)
+    : undefined;
+  if (width !== undefined && (width < 80 || width > 5000)) return null;
   return {
     schemaVersion: HAKUROU_SCHEMA_VERSION,
     assetId: value.assetId.trim(),
     kind: "image",
     source,
     ...(preview ? { preview } : {}),
+    ...(width ? { display: { width } } : {}),
   };
 }
 

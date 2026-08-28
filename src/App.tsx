@@ -8,7 +8,9 @@ import { history } from "@milkdown/plugin-history";
 import { listener, listenerCtx } from "@milkdown/plugin-listener";
 import { nord } from "@milkdown/theme-nord";
 import { EditorControls } from "./EditorControls";
+import { featureRegistry, type FeatureDocumentContext } from "./features";
 import { uiText, type UiLanguage, type UiText } from "./i18n";
+import { OutlineRailIcon } from "./ui/RailIcons";
 import { createImageAssetPlugins } from "./editor/image";
 import { formulaPlugins } from "./math";
 import { HAKUROU_SCHEMA_VERSION, collectDocumentImageAssets, createDocumentSchema, parseDocumentSidecar, serializeDocumentSidecar, type AssetV1, type DocumentV1 } from "./core/schema";
@@ -47,13 +49,16 @@ type WritingEditorProps = {
   onContentChange: (documentId: string, markdown: string) => void;
   documentPath: string | null;
   assetFolder: string | null;
+  assets: AssetV1[];
   onAssetImported: (documentId: string, asset: AssetV1, folder: string) => void;
+  onAssetResize: (documentId: string, assetId: string, width: number) => void;
   formatSettings: DocumentFormatSettings;
   onFormatChange: (documentId: string, settings: DocumentFormatSettings) => void;
   onSelectionChange: (text: string | null) => void;
   text: UiText;
   tableStyle: TableStyle;
   firstLineIndent: boolean;
+  editorZoom: number;
 };
 
 type DocumentHeading = {
@@ -80,6 +85,7 @@ type CustomFontDraft = {
 
 const recentFilesStorageKey = "hakurou.recent-files";
 const uiLanguageStorageKey = "hakurou.ui-language";
+const editorZoomStorageKey = "hakurou.editor-zoom";
 
 function filenameFromPath(path: string) {
   return path.split(/[\\/]/).pop() ?? "未命名文稿";
@@ -95,6 +101,11 @@ function readRecentFiles(): RecentFile[] {
   } catch {
     return [];
   }
+}
+
+function readEditorZoom() {
+  const stored = Number(window.localStorage.getItem(editorZoomStorageKey));
+  return Number.isFinite(stored) && stored >= 0.7 && stored <= 1.6 ? stored : 1;
 }
 
 function findAssetFolder(markdown: string) {
@@ -132,12 +143,14 @@ function countWords(markdown: string) {
   return cjkCharacters + latinWords;
 }
 
-function WritingEditor({ documentId, initialContent, onContentChange, documentPath, assetFolder, onAssetImported, formatSettings, onFormatChange, onSelectionChange, text, tableStyle, firstLineIndent }: WritingEditorProps) {
+function WritingEditor({ documentId, initialContent, onContentChange, documentPath, assetFolder, assets, onAssetImported, onAssetResize, formatSettings, onFormatChange, onSelectionChange, text, tableStyle, firstLineIndent, editorZoom }: WritingEditorProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [editorView, setEditorView] = useState<import("@milkdown/prose/view").EditorView | null>(null);
   const unresolvedFormatSettingsRef = useRef(emptyDocumentFormatSettings());
   const currentFormatSettingsRef = useRef(formatSettings);
+  const currentAssetsRef = useRef(assets);
   currentFormatSettingsRef.current = formatSettings;
+  currentAssetsRef.current = assets;
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -185,7 +198,9 @@ function WritingEditor({ documentId, initialContent, onContentChange, documentPa
           documentPath,
           assetFolder,
           assets: platform.assets,
+          findAsset: (displayPath) => currentAssetsRef.current.find((asset) => asset.preview?.path === displayPath || asset.source.path === displayPath),
           onAssetImported: (asset, folder) => onAssetImported(documentId, asset, folder),
+          onAssetResize: (assetId, width) => onAssetResize(documentId, assetId, width),
           onImportError: (error) => window.alert(String(error)),
         },
       ))
@@ -199,7 +214,7 @@ function WritingEditor({ documentId, initialContent, onContentChange, documentPa
       void editor.destroy().catch(console.error);
       if (mount.contains(editorHost)) mount.replaceChildren();
     };
-  }, [documentId, documentPath, initialContent, onAssetImported, onContentChange, onFormatChange]);
+  }, [documentId, documentPath, initialContent, onAssetImported, onAssetResize, onContentChange, onFormatChange]);
 
   useEffect(() => {
     if (!editorView) return;
@@ -211,7 +226,7 @@ function WritingEditor({ documentId, initialContent, onContentChange, documentPa
     editorView.dispatch(editorView.state.tr.setMeta(textDefaultLayoutPluginKey, setTextDefaultFirstLineIndent(firstLineIndent)));
   }, [editorView, firstLineIndent]);
 
-  return <div className="writing-editor-root"><div ref={mountRef} data-milkdown-root="true" /><EditorControls view={editorView} onSelectionChange={onSelectionChange} text={text} /></div>;
+  return <div className="writing-editor-root" style={{ zoom: editorZoom }}><div ref={mountRef} data-milkdown-root="true" /><EditorControls view={editorView} onSelectionChange={onSelectionChange} text={text} /></div>;
 }
 
 function App() {
@@ -219,6 +234,7 @@ function App() {
   const [activeTabId, setActiveTabId] = useState(() => tabs[0]!.id);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [language, setLanguage] = useState<UiLanguage>(() => window.localStorage.getItem(uiLanguageStorageKey) === "en" ? "en" : "zh");
+  const [editorZoom, setEditorZoom] = useState(readEditorZoom);
   const [applicationAppearance, setApplicationAppearance] = useState<ApplicationAppearanceSettings>(readApplicationAppearance);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [collapsedHeadings, setCollapsedHeadings] = useState<Record<string, number[]>>({});
@@ -229,16 +245,27 @@ function App() {
   const [viewSubmenu, setViewSubmenu] = useState<ViewSubmenu>(null);
   const [customFontTarget, setCustomFontTarget] = useState<AppearanceScope | null>(null);
   const [customFontDraft, setCustomFontDraft] = useState<CustomFontDraft>({ chineseFamily: "", latinFamily: "", weight: 400, baseFont: fontForPreset("elegant") });
+  const [activeFeatureId, setActiveFeatureId] = useState<string | null>(null);
   const menuListRef = useRef<HTMLElement>(null);
   const tabsRef = useRef(tabs);
   const recentFilesMenuTimerRef = useRef<number | null>(null);
   const viewSubmenuTimerRef = useRef<number | null>(null);
+  const editorStageRef = useRef<HTMLElement>(null);
 
   const activeDocument = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]!,
     [activeTabId, tabs],
   );
   const text = uiText[language];
+  const activeFeature = featureRegistry.getSidebarContribution(activeFeatureId);
+  const ActiveFeatureWorkspace = activeFeature?.Workspace;
+  const featureDocument = useMemo<FeatureDocumentContext>(() => ({
+    title: activeDocument.title,
+    path: activeDocument.path,
+    content: activeDocument.content,
+    assetFolder: activeDocument.assetFolder,
+    assets: activeDocument.assets,
+  }), [activeDocument.assetFolder, activeDocument.assets, activeDocument.content, activeDocument.path, activeDocument.title]);
   const effectiveDocumentDefaults = useMemo(() => ({
     font: activeDocument.formatSettings.defaults.font ?? applicationAppearance.font,
     tableStyle: activeDocument.formatSettings.defaults.tableStyle ?? applicationAppearance.tableStyle,
@@ -252,6 +279,10 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem(uiLanguageStorageKey, language);
   }, [language]);
+
+  useEffect(() => {
+    window.localStorage.setItem(editorZoomStorageKey, String(editorZoom));
+  }, [editorZoom]);
 
   useEffect(() => {
     writeApplicationAppearance(applicationAppearance);
@@ -284,6 +315,37 @@ function App() {
       return { ...tab, assets, assetFolder, isDirty: true };
     }));
   }, []);
+
+  const resizeDocumentAsset = useCallback((documentId: string, assetId: string, width: number) => {
+    setTabs((currentTabs) => currentTabs.map((tab) => {
+      if (tab.id !== documentId) return tab;
+      const assets = tab.assets.map((asset) => (
+        asset.assetId === assetId ? { ...asset, display: { width } } : asset
+      ));
+      return { ...tab, assets, isDirty: true };
+    }));
+  }, []);
+
+  const changeEditorZoom = useCallback((event: WheelEvent) => {
+    if (!event.ctrlKey) return;
+    event.preventDefault();
+    setEditorZoom((current) => {
+      const step = event.deltaY < 0 ? 0.1 : -0.1;
+      return Math.round(Math.min(1.6, Math.max(0.7, current + step)) * 10) / 10;
+    });
+  }, []);
+
+  useEffect(() => {
+    const stage = editorStageRef.current;
+    if (!stage) return;
+    stage.addEventListener("wheel", changeEditorZoom, { passive: false });
+    return () => stage.removeEventListener("wheel", changeEditorZoom);
+  }, [activeFeatureId, changeEditorZoom]);
+
+  const toggleDocumentSidebar = useCallback(() => {
+    setActiveFeatureId(null);
+    setSidebarOpen((visible) => activeFeatureId ? true : !visible);
+  }, [activeFeatureId]);
 
   const updateDocumentFormatSettings = useCallback((documentId: string, settings: DocumentFormatSettings) => {
     setTabs((currentTabs) => currentTabs.map((tab) => {
@@ -761,7 +823,7 @@ function App() {
                   </div>
                 </div>
                 <span className="app-menu-separator" />
-                <button type="button" onClick={() => invokeMenuAction(() => setSidebarOpen((visible) => !visible))}>{text.documentPanel} <kbd>Ctrl Shift B</kbd></button>
+                <button type="button" onClick={() => invokeMenuAction(toggleDocumentSidebar)}>{text.documentPanel} <kbd>Ctrl Shift B</kbd></button>
               </div>}
             </div>
             <div className="app-menu">
@@ -801,12 +863,25 @@ function App() {
           </div>
         </div>
 
-        <div className={`workspace-layout ${sidebarOpen ? "has-sidebar" : ""}`}>
+        <div className={`workspace-layout ${!activeFeature && sidebarOpen ? "has-sidebar" : ""}`}>
           <aside className="app-rail" aria-label={text.workspaceNavigation}>
             <span className="rail-mark" title="HakurouPaper"><img src={hakurouAppIcon} alt="HakurouPaper" /></span>
-            <button type="button" className={`rail-button ${sidebarOpen ? "is-active" : ""}`} onClick={() => setSidebarOpen((visible) => !visible)} title={text.outline} aria-label={text.outline}>▤</button>
+            <button type="button" className={`rail-button ${!activeFeature && sidebarOpen ? "is-active" : ""}`} onClick={toggleDocumentSidebar} title={text.outline} aria-label={text.outline}><OutlineRailIcon /></button>
+            {featureRegistry.sidebarContributions.map((contribution) => (
+              (() => {
+                const FeatureIcon = contribution.Icon;
+                return <button
+                  type="button"
+                  key={contribution.id}
+                  className={`rail-button ${activeFeature?.id === contribution.id ? "is-active" : ""}`}
+                  onClick={() => setActiveFeatureId((current) => current === contribution.id ? null : contribution.id)}
+                  title={contribution.label(text)}
+                  aria-label={contribution.label(text)}
+                ><FeatureIcon /></button>;
+              })()
+            ))}
           </aside>
-          {sidebarOpen && <aside className="document-sidebar" aria-label={text.documentList}>
+          {!activeFeature && sidebarOpen && <aside className="document-sidebar" aria-label={text.documentList}>
             {documentHeadings.length > 0 && <>
               <div className="sidebar-heading sidebar-outline-heading"><span>{text.outline}</span></div>
               <div className="sidebar-outline-list">
@@ -830,7 +905,9 @@ function App() {
               </div>
             </>}
           </aside>}
-          <section className="editor-stage" aria-label={text.editingArea} style={documentFontStyle}>
+          {ActiveFeatureWorkspace ? <section className="feature-stage" aria-label={activeFeature?.label(text)}>
+            <ActiveFeatureWorkspace document={featureDocument} text={text} />
+          </section> : <section ref={editorStageRef} className="editor-stage" aria-label={text.editingArea} style={documentFontStyle}>
               <WritingEditor
                 key={activeDocument.id}
                 documentId={activeDocument.id}
@@ -838,20 +915,32 @@ function App() {
                 onContentChange={updateDocument}
                 documentPath={activeDocument.path}
                 assetFolder={activeDocument.assetFolder}
+                assets={activeDocument.assets}
                 onAssetImported={updateDocumentAsset}
+                onAssetResize={resizeDocumentAsset}
                 formatSettings={activeDocument.formatSettings}
                 onFormatChange={updateDocumentFormatSettings}
                 onSelectionChange={updateSelectedText}
                 text={text}
                 tableStyle={effectiveDocumentDefaults.tableStyle}
                 firstLineIndent={effectiveDocumentDefaults.firstLineIndent}
+                editorZoom={editorZoom}
               />
-          </section>
+          </section>}
         </div>
 
         <footer className="statusbar">
           <span className="save-state"><i className={`save-state-dot ${activeDocument.isDirty ? "is-dirty" : "is-saved"}`} />{activeDocument.isDirty ? text.unsavedChanges : activeDocument.path ? text.savedLocally : text.localDraft}{selectedText && <span className="selection-count">{text.selectedCount(countWords(selectedText))}</span>}</span>
-          <span>{text.documentStats(countWords(activeDocument.content), activeDocument.content.trim().length)}</span>
+          <span className="status-document-stats">
+            <span>{text.documentStats(countWords(activeDocument.content), activeDocument.content.trim().length)}</span>
+            <button
+              type="button"
+              className={`status-zoom-reset ${editorZoom === 1 ? "is-default" : ""}`}
+              onClick={() => setEditorZoom(1)}
+              title={`${text.pageZoom(Math.round(editorZoom * 100))} · ${text.resetPageZoom}`}
+              aria-label={text.resetPageZoom}
+            >↻</button>
+          </span>
         </footer>
         {pendingClose && <div className="close-confirm-backdrop" role="presentation">
           <section className="close-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="close-confirm-title">

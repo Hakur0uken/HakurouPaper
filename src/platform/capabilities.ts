@@ -3,10 +3,10 @@ import type { PlatformCapabilities } from "./types";
 export const tauriCapabilities: PlatformCapabilities = {
   richClipboard: true,
   vectorClipboard: true,
-  externalProcesses: false,
+  externalProcesses: true,
   directoryProjects: true,
   nativeGit: false,
-  docxExport: false,
+  docxExport: true,
   filesystemWatch: false,
   multiWindow: true,
 };

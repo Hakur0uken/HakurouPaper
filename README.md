@@ -23,7 +23,7 @@ HakurouPaper 是一款面向长文档、论文和日常写作的本地优先 Mar
 - 粘贴本地图片；图片会随文稿保存在同级资源目录中。
 - 从 PowerPoint 粘贴图元时保留原始 EMF，同时用 PNG 预览显示；以后导出 Word 时可继续使用原图元。
 - 通过“文件 > 创建分享包…”将当前文稿与对应资源整理为独立文件夹，方便完整发送给他人。
-- 使用行内或块级 LaTeX 公式，并在需要时回到公式源码编辑。
+- 使用行内或块级 LaTeX 公式；块级公式默认显示右侧编号，可在公式源码编辑中取消编号。
 
 ### 文稿属于你
 
@@ -59,7 +59,7 @@ Visit [Releases](https://github.com/Hakur0uken/HakurouPaper/releases) to downloa
 - Paste local images; they are stored alongside the document in its resource folder.
 - Paste PowerPoint graphics while keeping the original EMF alongside a PNG preview, ready for future Word export.
 - Use **File > Create Share Package…** to collect the current document and its resources into a self-contained folder that is ready to send.
-- Write inline or display LaTeX equations, then return to the source whenever you need to edit them.
+- Write inline or display LaTeX equations; display equations show a right-side number by default, which can be disabled in the source editor.
 
 ### Your documents stay yours
 

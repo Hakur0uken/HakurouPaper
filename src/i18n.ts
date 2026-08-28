@@ -78,6 +78,58 @@ export type UiText = {
   localDraft: string;
   selectedCount: (count: number) => string;
   documentStats: (words: number, characters: number) => string;
+  pageZoom: (percent: number) => string;
+  resetPageZoom: string;
+  documentDelivery: string;
+  documentDeliveryDescription: string;
+  pandocChecking: string;
+  pandocReady: (version: string | undefined) => string;
+  pandocUnavailable: string;
+  checkPandoc: string;
+  downloadPandoc: string;
+  wordDocument: string;
+  wordTemplate: string;
+  formulaExport: string;
+  wordNativeFormulas: string;
+  wordNativeFormulasDescription: string;
+  mathTypeFormulas: string;
+  mathTypeFormulasDescription: string;
+  mathTypeChecking: string;
+  mathTypeReady: string;
+  mathTypeUnavailable: string;
+  checkMathType: string;
+  katexPreviewFormulas: string;
+  katexPreviewFormulasDescription: string;
+  chooseWordTemplate: string;
+  chooseDocxTemplate: string;
+  clearWordTemplate: string;
+  useLastWordTemplate: string;
+  noLastWordTemplate: string;
+  noWordTemplate: string;
+  exportDocument: string;
+  docxExportDescription: string;
+  docxExportRequiresSavedDocument: string;
+  chooseDocxDestination: string;
+  exportDocx: string;
+  exportingDocx: string;
+  docxProgressPreparing: string;
+  docxProgressGenerating: string;
+  docxProgressAwaitingMathTypeConvertDialog: string;
+  docxProgressMathTypeConvertDialogReady: string;
+  docxProgressManualMathTypeConvertNeeded: string;
+  docxProgressWaitingForMathType: string;
+  docxProgressFormattingMathType: string;
+  docxProgressAwaitingMathTypeFormatDialog: string;
+  docxProgressMathTypeFormatDialogReady: string;
+  docxProgressManualMathTypeFormatNeeded: string;
+  docxProgressMathTypeFormattingSkipped: string;
+  docxConfirmManualMathTypeStep: string;
+  docxProgressStartingMathTypeBatch: (batch: number, batches: number) => string;
+  docxProgressRenderingMathType: (completed: number, total: number, batch: number | null, batches: number | null) => string;
+  docxProgressSaving: string;
+  docxExported: (path: string) => string;
+  docxExportedWithPreviewFallback: (path: string, count: number) => string;
+  docxExportFailed: string;
   unsavedDocuments: string;
   unsavedDocument: string;
   confirmCloseApplication: string;
@@ -198,6 +250,60 @@ export const uiText: Record<UiLanguage, UiText> = {
     localDraft: "本地草稿",
     selectedCount: (count) => `· 已选 ${count} 字`,
     documentStats: (words, characters) => `${words} 字 · ${characters} 字符`,
+    pageZoom: (percent) => `页面缩放 ${percent}%`,
+    resetPageZoom: "还原页面缩放",
+    documentDelivery: "文稿交付",
+    documentDeliveryDescription: "通过 Pandoc 生成交付用 Word 文档；排版由所选 Word 模板决定，不映射编辑器展示设置。",
+    pandocChecking: "正在检测 Pandoc…",
+    pandocReady: (version) => `Pandoc 已就绪${version ? ` · ${version}` : ""}`,
+    pandocUnavailable: "未检测到 Pandoc",
+    checkPandoc: "重新检测",
+    downloadPandoc: "下载 Pandoc",
+    wordDocument: "Word 文档",
+    wordTemplate: "Word 模板",
+    formulaExport: "公式交付",
+    wordNativeFormulas: "Word 原生公式",
+    wordNativeFormulasDescription: "按所选 Word 模板生成原生公式；公式字体与样式完全由模板决定。",
+    mathTypeFormulas: "MathType 可编辑公式",
+    mathTypeFormulasDescription: "由 MathType 官方插件转换公式。转换时会打开 Word，需要等待一段时间。",
+    mathTypeChecking: "正在检测 MathType 环境…",
+    mathTypeReady: "MathType 环境已就绪",
+    mathTypeUnavailable: "需要配置 MathType 环境",
+    checkMathType: "重新检测 MathType",
+    katexPreviewFormulas: "兼容预览公式（旧版）",
+    katexPreviewFormulasDescription: "旧版 KaTeX PNG 预览路径；不用于高保真 MathType 交付。",
+    chooseWordTemplate: "选择 Word 模板…",
+    chooseDocxTemplate: "选择 Word 模板",
+    clearWordTemplate: "不使用模板",
+    useLastWordTemplate: "使用上次模板",
+    noLastWordTemplate: "暂无上次使用的模板",
+    noWordTemplate: "使用 Pandoc 默认样式",
+    exportDocument: "当前文稿",
+    docxExportDescription: "使用当前编辑内容与文稿资源创建 .docx。",
+    docxExportRequiresSavedDocument: "请先保存文稿，再导出 Word 文档。",
+    chooseDocxDestination: "选择 Word 文档保存位置",
+    exportDocx: "导出 Word 文档…",
+    exportingDocx: "正在导出…",
+    docxProgressPreparing: "正在准备导出…",
+    docxProgressGenerating: "正在生成 Word 文档…",
+    docxProgressAwaitingMathTypeConvertDialog: "正在等待 MathType 的“转换公式”窗口…",
+    docxProgressMathTypeConvertDialogReady: "“转换公式”窗口已出现：请点击“转换”，或等待自动化程序操作…",
+    docxProgressManualMathTypeConvertNeeded: "无法自动操作“转换”按钮；请手工点击“转换”，完成后将继续导出。",
+    docxProgressWaitingForMathType: "正在等待 MathType 处理整篇文档…",
+    docxProgressFormattingMathType: "正在由 MathType 格式化整篇文档…",
+    docxProgressAwaitingMathTypeFormatDialog: "正在等待 MathType 的“格式化公式”窗口…",
+    docxProgressMathTypeFormatDialogReady: "“格式化公式”窗口已出现：正在应用 MathType 公式预置…",
+    docxProgressManualMathTypeFormatNeeded: "无法自动操作“格式化公式”；请手工点击“确定”，完成后将继续保存。",
+    docxProgressMathTypeFormattingSkipped: "未捕获“格式化公式”窗口；保留已转换的公式并继续保存…",
+    docxConfirmManualMathTypeStep: "我已完成 MathType 操作，继续导出",
+    docxProgressStartingMathTypeBatch: (batch, batches) => `正在启动 MathType · 第 ${batch}/${batches} 批`,
+    docxProgressRenderingMathType: (completed, total, batch, batches) => batch && batches
+      ? `MathType 正在渲染公式 ${completed}/${total} · 第 ${batch}/${batches} 批`
+      : `MathType 正在渲染公式 ${completed}/${total}`,
+    docxProgressSaving: "正在保存 Word 文档…",
+    docxExported: (path) => `已导出 Word 文档：\n${path}`,
+    docxExportedWithPreviewFallback: (path, count) => `已导出 Word 文档：\n${path}\n\n其中 ${count} 个 EMF 图元已改用 PNG 预览，以保证 Word 兼容性。`,
+    docxExportFailed: "无法导出 Word 文档：",
     unsavedDocuments: "存在未保存文稿",
     unsavedDocument: "文稿尚未保存",
     confirmCloseApplication: "存在未保存的修改。确定不保存并关闭 HakurouPaper 吗？",
@@ -228,7 +334,7 @@ export const uiText: Record<UiLanguage, UiText> = {
     bulletListTooltip: "项目符号列表｜Markdown：- 内容｜再次点击还原正文",
     orderedList: "1. 列表",
     orderedListTooltip: "编号列表｜Markdown：1. 内容｜再次点击还原正文",
-    codeBlock: "‹/› 代码",
+    codeBlock: "代码",
     codeBlockTooltip: "代码块｜Markdown：```｜再次点击还原正文",
     boldTooltip: "加粗｜Ctrl+B｜Markdown：**文字**",
     italicTooltip: "斜体｜Ctrl+I｜Markdown：*文字*",
@@ -316,6 +422,60 @@ export const uiText: Record<UiLanguage, UiText> = {
     localDraft: "Local draft",
     selectedCount: (count) => ` · ${count} selected`,
     documentStats: (words, characters) => `${words} words · ${characters} characters`,
+    pageZoom: (percent) => `Page zoom ${percent}%`,
+    resetPageZoom: "Reset page zoom",
+    documentDelivery: "Document Delivery",
+    documentDeliveryDescription: "Create a delivery-ready Word document with Pandoc. The selected Word template controls layout; editor display settings are not exported.",
+    pandocChecking: "Checking Pandoc…",
+    pandocReady: (version) => `Pandoc is ready${version ? ` · ${version}` : ""}`,
+    pandocUnavailable: "Pandoc was not found",
+    checkPandoc: "Check again",
+    downloadPandoc: "Download Pandoc",
+    wordDocument: "Word document",
+    wordTemplate: "Word template",
+    formulaExport: "Formula delivery",
+    wordNativeFormulas: "Native Word equations",
+    wordNativeFormulasDescription: "Creates native Word equations with fonts and styling controlled entirely by the selected Word template.",
+    mathTypeFormulas: "Editable MathType equations",
+    mathTypeFormulasDescription: "Uses MathType’s official add-in to convert equations. Word opens during conversion and may take a while.",
+    mathTypeChecking: "Checking the MathType environment…",
+    mathTypeReady: "MathType environment is ready",
+    mathTypeUnavailable: "MathType setup is required",
+    checkMathType: "Check MathType again",
+    katexPreviewFormulas: "Legacy preview equations",
+    katexPreviewFormulasDescription: "Legacy KaTeX PNG preview path; not used for high-fidelity MathType delivery.",
+    chooseWordTemplate: "Choose Word template…",
+    chooseDocxTemplate: "Choose Word template",
+    clearWordTemplate: "Use no template",
+    useLastWordTemplate: "Use last template",
+    noLastWordTemplate: "No previously used template",
+    noWordTemplate: "Use Pandoc default styles",
+    exportDocument: "Current document",
+    docxExportDescription: "Creates a .docx from the current editing content and document assets.",
+    docxExportRequiresSavedDocument: "Save the document before exporting a Word document.",
+    chooseDocxDestination: "Choose where to save the Word document",
+    exportDocx: "Export Word document…",
+    exportingDocx: "Exporting…",
+    docxProgressPreparing: "Preparing export…",
+    docxProgressGenerating: "Generating Word document…",
+    docxProgressAwaitingMathTypeConvertDialog: "Waiting for MathType’s Convert Equations dialog…",
+    docxProgressMathTypeConvertDialogReady: "The Convert Equations dialog is ready: click Convert, or wait for automation…",
+    docxProgressManualMathTypeConvertNeeded: "Automation could not operate Convert. Click Convert manually; export will continue when conversion finishes.",
+    docxProgressWaitingForMathType: "Waiting for MathType to process the whole document…",
+    docxProgressFormattingMathType: "MathType is formatting the whole document…",
+    docxProgressAwaitingMathTypeFormatDialog: "Waiting for MathType’s Format Equations dialog…",
+    docxProgressMathTypeFormatDialogReady: "The Format Equations dialog is ready: applying MathType’s equation preset…",
+    docxProgressManualMathTypeFormatNeeded: "Automation could not operate Format Equations. Click OK manually; saving will continue when formatting finishes.",
+    docxProgressMathTypeFormattingSkipped: "The Format Equations dialog was not observed; preserving converted equations and saving…",
+    docxConfirmManualMathTypeStep: "I completed the MathType step — continue export",
+    docxProgressStartingMathTypeBatch: (batch, batches) => `Starting MathType · batch ${batch}/${batches}`,
+    docxProgressRenderingMathType: (completed, total, batch, batches) => batch && batches
+      ? `MathType is rendering equations ${completed}/${total} · batch ${batch}/${batches}`
+      : `MathType is rendering equations ${completed}/${total}`,
+    docxProgressSaving: "Saving Word document…",
+    docxExported: (path) => `Word document exported:\n${path}`,
+    docxExportedWithPreviewFallback: (path, count) => `Word document exported:\n${path}\n\n${count} EMF graphic(s) used PNG previews for Word compatibility.`,
+    docxExportFailed: "Could not export the Word document:",
     unsavedDocuments: "Unsaved documents",
     unsavedDocument: "Document not saved",
     confirmCloseApplication: "There are unsaved changes. Close HakurouPaper without saving them?",
@@ -346,7 +506,7 @@ export const uiText: Record<UiLanguage, UiText> = {
     bulletListTooltip: "Bulleted list｜Markdown: - item｜Click again to return to body text",
     orderedList: "1. List",
     orderedListTooltip: "Numbered list｜Markdown: 1. item｜Click again to return to body text",
-    codeBlock: "‹/› Code",
+    codeBlock: "Code",
     codeBlockTooltip: "Code block｜Markdown: ```｜Click again to return to body text",
     boldTooltip: "Bold｜Ctrl+B｜Markdown: **text**",
     italicTooltip: "Italic｜Ctrl+I｜Markdown: *text*",

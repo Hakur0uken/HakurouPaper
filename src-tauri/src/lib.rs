@@ -8,6 +8,9 @@ use std::{
 };
 use tauri::Manager;
 
+mod mathtype;
+mod pandoc;
+
 static IMAGE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Serialize)]
@@ -40,7 +43,7 @@ struct SharePackage {
     asset_folder: String,
 }
 
-fn is_markdown_path(path: &Path) -> bool {
+pub(crate) fn is_markdown_path(path: &Path) -> bool {
     matches!(
         path.extension().and_then(|extension| extension.to_str()),
         Some("md" | "markdown" | "mdx")
@@ -107,7 +110,7 @@ fn stable_path_suffix(path: &Path) -> String {
     format!("{hash:08x}")[..6].to_string()
 }
 
-fn document_asset_folder(document_path: &Path, asset_folder: Option<String>) -> String {
+pub(crate) fn document_asset_folder(document_path: &Path, asset_folder: Option<String>) -> String {
     let stem = document_path
         .file_stem()
         .and_then(|stem| stem.to_str())
@@ -124,7 +127,7 @@ fn document_asset_folder(document_path: &Path, asset_folder: Option<String>) -> 
         })
 }
 
-fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
+pub(crate) fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
     for entry in std::fs::read_dir(source).map_err(|error| format!("无法读取文稿资源：{error}"))?
     {
         let entry = entry.map_err(|error| format!("无法读取文稿资源：{error}"))?;
@@ -720,6 +723,10 @@ pub fn run() {
             save_pasted_image,
             save_clipboard_emf_preview,
             export_share_package,
+            mathtype::inspect_math_type,
+            mathtype::confirm_manual_mathtype_step,
+            pandoc::inspect_pandoc,
+            pandoc::export_docx,
             close_application
         ])
         .run(tauri::generate_context!())

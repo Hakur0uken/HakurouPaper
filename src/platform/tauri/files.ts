@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { FileService, SharePackage, StoredDocumentFormat } from "../types";
+import { listen } from "@tauri-apps/api/event";
+import type { DocxExport, DocxExportProgress, FileService, MathTypeStatus, PandocStatus, SharePackage, StoredDocumentFormat } from "../types";
 
 export const tauriFiles: FileService = {
   readMarkdown(path) {
@@ -21,6 +22,30 @@ export const tauriFiles: FileService = {
       assetFolder: input.assetFolder,
       formatContent: input.formatContent,
       destinationDir: input.destinationDir,
+    });
+  },
+  inspectPandoc() {
+    return invoke<PandocStatus>("inspect_pandoc");
+  },
+  inspectMathType() {
+    return invoke<MathTypeStatus>("inspect_math_type");
+  },
+  onDocxExportProgress(listener) {
+    return listen<DocxExportProgress>("docx-export-progress", (event) => listener(event.payload));
+  },
+  confirmManualMathTypeStep() {
+    return invoke("confirm_manual_mathtype_step");
+  },
+  exportDocx(input) {
+    return invoke<DocxExport>("export_docx", {
+      documentPath: input.documentPath,
+      content: input.content,
+      assetFolder: input.assetFolder,
+      assets: input.assets,
+      outputPath: input.outputPath,
+      referenceDocPath: input.referenceDocPath,
+      formulaMode: input.formulaMode,
+      formulaPreviews: input.formulaPreviews,
     });
   },
 };

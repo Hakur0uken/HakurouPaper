@@ -20,6 +20,7 @@ class FormulaNodeView implements NodeView {
   private readonly options: FormulaNodeViewOptions;
   private node: ProseNode;
   private editing = false;
+  private readonly onNumberingRefresh: () => void;
 
   constructor(node: ProseNode, view: EditorView, getPos: () => number | undefined, options: FormulaNodeViewOptions) {
     this.node = node;
@@ -29,6 +30,10 @@ class FormulaNodeView implements NodeView {
     this.dom = document.createElement(options.displayMode ? "div" : "span");
     this.dom.className = options.className;
     this.dom.contentEditable = "false";
+    this.onNumberingRefresh = () => {
+      if (this.options.displayMode && !this.editing) this.renderPreview();
+    };
+    this.view.dom.addEventListener("hakurou-formula-numbering-refresh", this.onNumberingRefresh);
     this.renderPreview();
   }
 
@@ -56,17 +61,37 @@ class FormulaNodeView implements NodeView {
     return true;
   }
 
+  destroy() {
+    this.view.dom.removeEventListener("hakurou-formula-numbering-refresh", this.onNumberingRefresh);
+  }
+
   private renderPreview() {
     this.editing = false;
     this.dom.replaceChildren();
     const preview = document.createElement("span");
     const value = String(this.node.attrs.value ?? "");
-    preview.innerHTML = katex.renderToString(value || "\\text{双击输入公式}", {
+    preview.className = "hakurou-formula-preview";
+    preview.innerHTML = katex.renderToString(stripFormulaLayoutCommands(value) || "\\text{双击输入公式}", {
       displayMode: this.options.displayMode,
       throwOnError: false,
       strict: "ignore",
     });
-    this.dom.append(preview);
+    if (this.options.displayMode) {
+      const layout = document.createElement("span");
+      layout.className = "hakurou-formula-block-layout";
+      layout.append(preview);
+      const label = this.formulaNumberLabel(value);
+      if (label) {
+        const number = document.createElement("span");
+        number.className = "hakurou-formula-number";
+        number.textContent = label;
+        number.setAttribute("aria-label", `公式编号 ${label}`);
+        layout.append(number);
+      }
+      this.dom.append(layout);
+    } else {
+      this.dom.append(preview);
+    }
     this.dom.title = "双击编辑 LaTeX 源码";
     this.dom.ondblclick = (event) => {
       event.preventDefault();
@@ -89,6 +114,20 @@ class FormulaNodeView implements NodeView {
     const hint = document.createElement("span");
     hint.textContent = "Ctrl Enter 确认 · Esc 取消";
     const controls = document.createElement("div");
+    if (this.options.displayMode) {
+      const numbering = document.createElement("label");
+      numbering.className = "hakurou-formula-numbering-toggle";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = formulaUsesNumber(valueOrEmpty(this.node));
+      const label = document.createElement("span");
+      label.textContent = "右侧编号";
+      checkbox.addEventListener("change", () => {
+        textarea.value = setFormulaNumbering(textarea.value, checkbox.checked);
+      });
+      numbering.append(checkbox, label);
+      controls.append(numbering);
+    }
     const cancel = document.createElement("button");
     cancel.type = "button";
     cancel.textContent = "取消";
@@ -124,6 +163,71 @@ class FormulaNodeView implements NodeView {
     const attrs = { ...this.node.attrs, value };
     this.view.dispatch(this.view.state.tr.setNodeMarkup(position, undefined, attrs));
   }
+
+  private formulaNumberLabel(value: string) {
+    if (!formulaUsesNumber(value)) return null;
+    const explicitTag = findEquationTag(value);
+    if (explicitTag) return formatEquationTag(explicitTag);
+
+    const position = this.getPos();
+    if (typeof position !== "number") return null;
+    let sequence = 0;
+    this.view.state.doc.nodesBetween(0, position, (node) => {
+      if (node.type.name !== "hakurou_block_formula") return;
+      const earlierValue = valueOrEmpty(node);
+      if (!formulaUsesNumber(earlierValue)) return;
+      const tag = findEquationTag(earlierValue);
+      const explicitNumber = tag && numericEquationTag(tag.value);
+      sequence = explicitNumber ?? sequence + 1;
+    });
+    return `(${sequence + 1})`;
+  }
+}
+
+type EquationTag = {
+  value: string;
+  starred: boolean;
+};
+
+function valueOrEmpty(node: ProseNode) {
+  return String(node.attrs.value ?? "");
+}
+
+function formulaUsesNumber(value: string) {
+  return !/\\(?:notag|nonumber)\b/.test(value);
+}
+
+function setFormulaNumbering(value: string, enabled: boolean) {
+  const withoutSuppression = value.replace(/\s*\\(?:notag|nonumber)\b/g, "").trimEnd();
+  return enabled ? withoutSuppression : `${withoutSuppression}${withoutSuppression ? "\n" : ""}\\notag`;
+}
+
+function stripFormulaLayoutCommands(value: string) {
+  return value
+    .replace(/\\(?:notag|nonumber)\b/g, "")
+    .replace(/\\tag\*?\s*\{(?:[^{}]|\{[^{}]*\})*\}/g, "")
+    .trim();
+}
+
+function findEquationTag(value: string): EquationTag | null {
+  const pattern = /\\tag(\*)?\s*\{((?:[^{}]|\{[^{}]*\})*)\}/g;
+  let found: EquationTag | null = null;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(value)) !== null) {
+    const tag = match[2]?.trim();
+    if (tag) found = { value: tag, starred: Boolean(match[1]) };
+  }
+  return found;
+}
+
+function formatEquationTag(tag: EquationTag) {
+  if (tag.starred || /^\(.*\)$/.test(tag.value)) return tag.value;
+  return `(${tag.value})`;
+}
+
+function numericEquationTag(value: string) {
+  const match = value.match(/^\(?\s*(\d+)\s*\)?$/);
+  return match ? Number(match[1]) : null;
 }
 
 const formulaRemark = $remark("hakurouFormulaRemark", () => remarkMath);
@@ -253,6 +357,19 @@ export const formulaPasteRule = $prose((ctx) => new Plugin({
   },
 }));
 
+/** Repaint all visible block labels after a formula is inserted, removed, or moved. */
+export const formulaNumberingRefresh = $prose(() => new Plugin({
+  view() {
+    return {
+      update(nextView, previousState) {
+        if (!nextView.state.doc.eq(previousState.doc)) {
+          nextView.dom.dispatchEvent(new Event("hakurou-formula-numbering-refresh"));
+        }
+      },
+    };
+  },
+}));
+
 export const formulaPlugins = [
   formulaRemark.options,
   formulaRemark.plugin,
@@ -263,4 +380,5 @@ export const formulaPlugins = [
   inlineFormulaInputRule,
   blockFormulaEnterRule,
   formulaPasteRule,
+  formulaNumberingRefresh,
 ];
