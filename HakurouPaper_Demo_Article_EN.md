@@ -20,12 +20,7 @@ $$
 D_t = \{M_t,\ A_t,\ F_t,\ V_t\},
 $$
 
-where $M_t$ denotes the Markdown content, $A_t$ represents local assets such as figures, $F_t$ contains formatting information stored independently from the manuscript text, and $V_t$ represents the current version state. This separation keeps content, presentation, and history decoupled internally while still presenting them to the user as one coherent document.
-
-> **Paste the HakurouPaper architecture diagram from the PowerPoint file here.**  
-> For demonstration purposes, copy the complete diagram directly from the provided PPT into HakurouPaper to test both the PNG preview and preservation of the original EMF vector graphic.
-
-**Figure 1. Human–AI collaborative writing architecture in HakurouPaper.**
+where $M_t$ denotes the Markdown content, $A_t$ represents local assets such as figures, $F_t$ contains formatting information stored independently from the manuscript text, and $V_t$ represents the current version state. This separation keeps content, presentation, and history decoupled internally while still presenting them to the user as one coherent document.![](./assets/HakurouPaper_Demo_Article_EN-5a07a9/1788015036556-0000.png)**Figure 1. Human–AI collaborative writing architecture in HakurouPaper.**
 
 As illustrated in Figure 1, the human author and AI operate on the same document core. The author reads, writes, and formats through the visual editor, while AI works with the structured manuscript to understand and revise its content. Both types of edits converge on the same document state and are recorded through a unified version layer.
 
@@ -43,12 +38,12 @@ These changes are not limited to source-level diffs. Text edits remain visible a
 
 HakurouPaper is designed so that each participant interacts mainly with the layer they actually need.
 
-| Layer | What the author sees | What AI / tools work with | Persistent form |
-| --- | --- | --- | --- |
-| Content | Visual manuscript | Structured text | Markdown |
-| Figures | Direct paste, resize, and layout | Explicit asset references | Local asset files |
-| Versions | Create version, preview changes, restore | Comparable historical states | Git |
-| Delivery | Export and share | Independent delivery workflow | Word |
+| Layer    | What the author sees                     | What AI / tools work with     | Persistent form   |
+| -------- | ---------------------------------------- | ----------------------------- | ----------------- |
+| Content  | Visual manuscript                        | Structured text               | Markdown          |
+| Figures  | Direct paste, resize, and layout         | Explicit asset references     | Local asset files |
+| Versions | Create version, preview changes, restore | Comparable historical states  | Git               |
+| Delivery | Export and share                         | Independent delivery workflow | Word              |
 
 This separation gives each component a clear role: Markdown supports writing and AI collaboration, Git provides history and recoverability, and Word remains the practical delivery format. Authors do not need to change the document habits of an entire research group simply to work with AI, nor do they need to abandon an open writing format just because the final deliverable is a Word document.
 
