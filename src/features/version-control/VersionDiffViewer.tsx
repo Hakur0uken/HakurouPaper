@@ -136,7 +136,7 @@ export function VersionDiffViewer({ document, initialPath, versionId, text, onCl
       </div>
       <div className="version-diff-header-actions">
         {versionId && comparison?.targetRevision.kind === "version" && <button type="button" className="is-primary" onClick={() => onRestoreVersion(versionId, comparison.targetRevision.title ?? comparison.targetRevision.shortId ?? text.versionThisVersion)}>{text.versionRestoreThis}</button>}
-        <button type="button" onClick={onClose}>{text.versionDiffClose}</button>
+        <button type="button" onClick={onClose}>{text.versionExitAdvancedMode}</button>
       </div>
       {comparison && <div className="version-diff-header-comparison">
         <div className="version-revision-comparison">

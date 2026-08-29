@@ -8,7 +8,7 @@ import { history } from "@milkdown/plugin-history";
 import { listener, listenerCtx } from "@milkdown/plugin-listener";
 import { nord } from "@milkdown/theme-nord";
 import { EditorControls } from "./EditorControls";
-import { featureRegistry, VersionDiffViewer, type FeatureDocumentContext } from "./features";
+import { featureRegistry, RenderedRevisionViewer, VersionDiffViewer, type FeatureDocumentContext } from "./features";
 import { uiText, type UiLanguage, type UiText } from "./i18n";
 import { OutlineRailIcon } from "./ui/RailIcons";
 import { createImageAssetPlugins } from "./editor/image";
@@ -18,6 +18,8 @@ import { platform, type RestoreStrategy, type VersionChange, type VersionRecord 
 import { spreadsheetTablePastePlugin } from "./spreadsheetTablePaste";
 import { createTableDecorationPlugin, setTableDefaultStyle, tableDefaultStylePluginKey } from "./tableDecorations";
 import { createTextLayoutPlugin, setTextDefaultFirstLineIndent, textDefaultLayoutPluginKey } from "./textLayout";
+import { createRevisionDecorationPlugin, revisionDecorationPluginKey, scrollToRevisionLocation, setRevisionDecorations } from "./revisionDecorations";
+import { RevisionOverviewRuler, useCurrentRevisionLocations, type RevisionLocation } from "./features/version-control";
 import { collectDocumentFormatSettings, collectUnresolvedDocumentFormatSettings, documentFormattingChanged } from "./formatPersistence";
 import { documentContentFingerprint, emptyDocumentFormatSettings, parseDocumentFormatSettings, removeLegacyFormatMarkers, type DocumentFontSettings, type DocumentFormatDefaults, type DocumentFormatSettings, type DocumentFontWeight } from "./formatTypes";
 import { fontFamiliesForInput, fontFamilyStack, fontForPreset, readApplicationAppearance, writeApplicationAppearance, type ApplicationAppearanceSettings, type TableStyle } from "./appearanceSettings";
@@ -58,6 +60,9 @@ type WritingEditorProps = {
   text: UiText;
   tableStyle: TableStyle;
   firstLineIndent: boolean;
+  showRevisionChanges: boolean;
+  revisionLocations: RevisionLocation[];
+  onOpenRevisionPreview: (locationId: string) => void;
 };
 
 type DocumentHeading = {
@@ -67,7 +72,7 @@ type DocumentHeading = {
 };
 
 type PendingClose = { kind: "tab"; tabId: string } | { kind: "app" } | null;
-type ActiveVersionComparison = { initialPath: string | null; versionId: string | null };
+type ActiveVersionComparison = { initialPath: string | null; versionId: string | null; presentation: "rendered" | "source"; focusLocationId?: string | null };
 type RestoreDialog =
   | { kind: "unsaved"; targetCommitId: string; targetTitle: string }
   | { kind: "confirm"; targetCommitId: string; targetTitle: string }
@@ -90,6 +95,7 @@ type CustomFontDraft = {
 
 const recentFilesStorageKey = "hakurou.recent-files";
 const uiLanguageStorageKey = "hakurou.ui-language";
+const revisionChangesVisibleStorageKey = "hakurou.show-revision-changes";
 
 function filenameFromPath(path: string) {
   return path.split(/[\\/]/).pop() ?? "未命名文稿";
@@ -142,14 +148,21 @@ function countWords(markdown: string) {
   return cjkCharacters + latinWords;
 }
 
-function WritingEditor({ documentId, initialContent, onContentChange, documentPath, assetFolder, assets, onAssetImported, onAssetResize, formatSettings, onFormatChange, onSelectionChange, text, tableStyle, firstLineIndent }: WritingEditorProps) {
+function WritingEditor({ documentId, initialContent, onContentChange, documentPath, assetFolder, assets, onAssetImported, onAssetResize, formatSettings, onFormatChange, onSelectionChange, text, tableStyle, firstLineIndent, showRevisionChanges, revisionLocations, onOpenRevisionPreview }: WritingEditorProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [editorView, setEditorView] = useState<import("@milkdown/prose/view").EditorView | null>(null);
+  const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(null);
   const unresolvedFormatSettingsRef = useRef(emptyDocumentFormatSettings());
   const currentFormatSettingsRef = useRef(formatSettings);
   const currentAssetsRef = useRef(assets);
+  const openRevisionPreviewRef = useRef(onOpenRevisionPreview);
   currentFormatSettingsRef.current = formatSettings;
   currentAssetsRef.current = assets;
+  openRevisionPreviewRef.current = onOpenRevisionPreview;
+
+  useEffect(() => {
+    setScrollContainer(mountRef.current?.closest<HTMLElement>(".editor-stage") ?? null);
+  }, []);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -205,6 +218,7 @@ function WritingEditor({ documentId, initialContent, onContentChange, documentPa
       ))
       .use(createTableDecorationPlugin(currentFormatSettingsRef.current, tableStyle))
       .use(createTextLayoutPlugin(currentFormatSettingsRef.current, firstLineIndent))
+      .use(createRevisionDecorationPlugin((locationId) => openRevisionPreviewRef.current(locationId)))
       .use(editorControlsBridge);
     void editor.create().catch(console.error);
     return () => {
@@ -225,7 +239,21 @@ function WritingEditor({ documentId, initialContent, onContentChange, documentPa
     editorView.dispatch(editorView.state.tr.setMeta(textDefaultLayoutPluginKey, setTextDefaultFirstLineIndent(firstLineIndent)));
   }, [editorView, firstLineIndent]);
 
-  return <div className="writing-editor-root"><div ref={mountRef} data-milkdown-root="true" /><EditorControls view={editorView} onSelectionChange={onSelectionChange} text={text} /></div>;
+  useEffect(() => {
+    if (!editorView) return;
+    editorView.dispatch(editorView.state.tr.setMeta(revisionDecorationPluginKey, setRevisionDecorations(showRevisionChanges, revisionLocations)));
+  }, [editorView, revisionLocations, showRevisionChanges]);
+
+  const navigateRevisionLocation = (location: RevisionLocation) => {
+    if (location.kind === "removed") onOpenRevisionPreview(location.id);
+    else if (editorView) scrollToRevisionLocation(editorView, location.id);
+  };
+
+  return <div className={`writing-editor-root${showRevisionChanges ? " is-showing-revision-changes" : ""}`}>
+    <div ref={mountRef} data-milkdown-root="true" />
+    {showRevisionChanges && <RevisionOverviewRuler locations={revisionLocations} onNavigate={navigateRevisionLocation} scrollContainer={scrollContainer} className="editor-revision-overview" />}
+    <EditorControls view={editorView} onSelectionChange={onSelectionChange} text={text} />
+  </div>;
 }
 
 function App() {
@@ -246,6 +274,7 @@ function App() {
   const [activeFeatureId, setActiveFeatureId] = useState<string | null>(null);
   const [versionStatusRevision, setVersionStatusRevision] = useState(0);
   const [activeVersionComparison, setActiveVersionComparison] = useState<ActiveVersionComparison | null>(null);
+  const [showRevisionChanges, setShowRevisionChanges] = useState(() => window.localStorage.getItem(revisionChangesVisibleStorageKey) === "true");
   const [restoreDialog, setRestoreDialog] = useState<RestoreDialog>(null);
   const [isRestoringVersion, setIsRestoringVersion] = useState(false);
   const menuListRef = useRef<HTMLElement>(null);
@@ -267,9 +296,17 @@ function App() {
     content: activeDocument.content,
     assetFolder: activeDocument.assetFolder,
     assets: activeDocument.assets,
+    sidecarContent: serializeDocumentSidecar({
+      schemaVersion: HAKUROU_SCHEMA_VERSION,
+      document: activeDocument.document,
+      assets: activeDocument.assets,
+      format: activeDocument.formatSettings,
+    }),
     isDirty: activeDocument.isDirty,
     versionStatusRevision,
-  }), [activeDocument.assetFolder, activeDocument.assets, activeDocument.content, activeDocument.isDirty, activeDocument.path, activeDocument.title, versionStatusRevision]);
+  }), [activeDocument.assetFolder, activeDocument.assets, activeDocument.content, activeDocument.document, activeDocument.formatSettings, activeDocument.isDirty, activeDocument.path, activeDocument.title, versionStatusRevision]);
+  const revisionLocationState = useCurrentRevisionLocations(featureDocument, showRevisionChanges);
+  const revisionLocations = revisionLocationState.kind === "ready" ? revisionLocationState.locations : [];
   const effectiveDocumentDefaults = useMemo(() => ({
     font: activeDocument.formatSettings.defaults.font ?? applicationAppearance.font,
     tableStyle: activeDocument.formatSettings.defaults.tableStyle ?? applicationAppearance.tableStyle,
@@ -283,6 +320,10 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem(uiLanguageStorageKey, language);
   }, [language]);
+
+  useEffect(() => {
+    window.localStorage.setItem(revisionChangesVisibleStorageKey, String(showRevisionChanges));
+  }, [showRevisionChanges]);
 
   useEffect(() => {
     writeApplicationAppearance(applicationAppearance);
@@ -406,12 +447,17 @@ function App() {
     setActiveTabId(documentId);
   }, []);
 
-  const openVersionDiff = useCallback((change: VersionChange) => setActiveVersionComparison({ initialPath: change.path, versionId: null }), []);
-  const openVersionHistoryComparison = useCallback((version: VersionRecord) => setActiveVersionComparison({ initialPath: null, versionId: version.id }), []);
+  const openVersionDiff = useCallback((change: VersionChange) => setActiveVersionComparison({ initialPath: change.path, versionId: null, presentation: "rendered" }), []);
+  const openVersionHistoryComparison = useCallback((version: VersionRecord) => setActiveVersionComparison({ initialPath: null, versionId: version.id, presentation: "rendered" }), []);
+  const openRevisionPreviewAtLocation = useCallback((locationId: string) => setActiveVersionComparison({ initialPath: null, versionId: null, presentation: "rendered", focusLocationId: locationId }), []);
   const closeVersionDiff = useCallback(() => {
-    setActiveVersionComparison(null);
+    setActiveVersionComparison((current) => current?.presentation === "source" ? { ...current, presentation: "rendered" } : null);
     setVersionStatusRevision((revision) => revision + 1);
   }, []);
+  const openAdvancedVersionComparison = useCallback(() => {
+    if (activeDocument.isDirty && !window.confirm(text.versionAdvancedUnsavedNotice)) return;
+    setActiveVersionComparison((current) => current ? { ...current, presentation: "source" } : current);
+  }, [activeDocument.isDirty, text.versionAdvancedUnsavedNotice]);
 
   const createNewDocument = useCallback(() => {
     const document = createDocument();
@@ -626,6 +672,11 @@ function App() {
       setPendingClose({ kind: "tab", tabId });
       return;
     }
+    if (tabId === activeTabId) {
+      setActiveVersionComparison(null);
+      setActiveFeatureId(null);
+      setSidebarOpen(true);
+    }
     const remainingTabs = tabs.filter((item) => item.id !== tabId);
     if (remainingTabs.length === 0) {
       const freshDocument = createDocument();
@@ -640,6 +691,11 @@ function App() {
   const discardAndCloseTab = useCallback((tabId: string) => {
     const tab = tabs.find((item) => item.id === tabId);
     if (!tab) return;
+    if (tabId === activeTabId) {
+      setActiveVersionComparison(null);
+      setActiveFeatureId(null);
+      setSidebarOpen(true);
+    }
     const remainingTabs = tabs.filter((item) => item.id !== tabId);
     if (remainingTabs.length === 0) {
       const freshDocument = createDocument();
@@ -962,7 +1018,7 @@ function App() {
             ))}
           </aside>
           {ActiveFeatureWorkspace ? <aside className="feature-sidebar" aria-label={activeFeature?.label(text)}>
-            <ActiveFeatureWorkspace document={featureDocument} text={text} onSaveDocument={handleSave} onOpenVersionDiff={openVersionDiff} onOpenVersionHistoryComparison={openVersionHistoryComparison} />
+            <ActiveFeatureWorkspace document={featureDocument} text={text} onSaveDocument={handleSave} showRevisionChanges={showRevisionChanges} onShowRevisionChangesChange={setShowRevisionChanges} onVersionStateChanged={() => setVersionStatusRevision((revision) => revision + 1)} onOpenVersionDiff={openVersionDiff} onOpenVersionHistoryComparison={openVersionHistoryComparison} />
           </aside> : sidebarOpen && <aside className="document-sidebar" aria-label={text.documentList}>
             {documentHeadings.length > 0 && <>
               <div className="sidebar-heading sidebar-outline-heading"><span>{text.outline}</span></div>
@@ -1004,9 +1060,21 @@ function App() {
                 text={text}
                 tableStyle={effectiveDocumentDefaults.tableStyle}
                 firstLineIndent={effectiveDocumentDefaults.firstLineIndent}
+                showRevisionChanges={showRevisionChanges}
+                revisionLocations={revisionLocations}
+                onOpenRevisionPreview={openRevisionPreviewAtLocation}
               />
           </section>
-          {activeVersionComparison && <VersionDiffViewer document={featureDocument} initialPath={activeVersionComparison.initialPath} versionId={activeVersionComparison.versionId} text={text} onClose={closeVersionDiff} onRestoreVersion={requestVersionRestore} />}
+          {activeVersionComparison?.presentation === "rendered" && <RenderedRevisionViewer
+            document={featureDocument}
+            versionId={activeVersionComparison.versionId}
+            initialLocationId={activeVersionComparison.focusLocationId}
+            text={text}
+            onClose={closeVersionDiff}
+            onOpenAdvanced={openAdvancedVersionComparison}
+            onRestoreVersion={requestVersionRestore}
+          />}
+          {activeVersionComparison?.presentation === "source" && <VersionDiffViewer document={featureDocument} initialPath={activeVersionComparison.initialPath} versionId={activeVersionComparison.versionId} text={text} onClose={closeVersionDiff} onRestoreVersion={requestVersionRestore} />}
         </div>
 
         <footer className="statusbar">

@@ -61,7 +61,7 @@ function changeSymbol(change: VersionChange) {
   }
 }
 
-export function VersionControlWorkspace({ document, text, onSaveDocument, onOpenVersionDiff, onOpenVersionHistoryComparison }: FeatureWorkspaceProps) {
+export function VersionControlWorkspace({ document, text, onSaveDocument, showRevisionChanges, onShowRevisionChangesChange, onVersionStateChanged, onOpenVersionDiff, onOpenVersionHistoryComparison }: FeatureWorkspaceProps) {
   const [state, setState] = useState<VersionControlState>(() => document.path ? { kind: "checking" } : { kind: "unsaved" });
   const [changesState, setChangesState] = useState<ChangesState>({ kind: "idle" });
   const [historyState, setHistoryState] = useState<HistoryState>({ kind: "idle" });
@@ -193,6 +193,7 @@ export function VersionControlWorkspace({ document, text, onSaveDocument, onOpen
         assetFolder: document.assetFolder,
         message,
       });
+      onVersionStateChanged();
       setVersionMessage("");
       setCreateMessage(text.versionCreated);
       await inspect();
@@ -201,7 +202,7 @@ export function VersionControlWorkspace({ document, text, onSaveDocument, onOpen
     } finally {
       setIsCreatingVersion(false);
     }
-  }, [document.assetFolder, document.path, inspect, isCreatingVersion, onSaveDocument, text.versionCreated, text.versionMessageRequired, versionMessage]);
+  }, [document.assetFolder, document.path, inspect, isCreatingVersion, onSaveDocument, onVersionStateChanged, text.versionCreated, text.versionMessageRequired, versionMessage]);
 
   const documentChanges = changesState.kind === "ready"
     ? changesState.changes.filter((change) => change.isDocument)
@@ -256,7 +257,7 @@ export function VersionControlWorkspace({ document, text, onSaveDocument, onOpen
     {state.kind === "repository" && <>
       <section className="version-control-status" aria-live="polite">
         <span className="version-control-status-dot" />
-        <strong>✓ {text.versionEnabled}</strong>
+        <strong>{text.versionEnabled}</strong>
         <div className="version-control-status-actions"><button type="button" onClick={() => void inspect()}>{text.versionRefresh}</button></div>
       </section>
       <section className="version-control-card version-change-card">
@@ -264,6 +265,7 @@ export function VersionControlWorkspace({ document, text, onSaveDocument, onOpen
           <h2>{text.versionCurrentChanges}</h2>
           {changesState.kind === "ready" && <span>{documentChanges.length}</span>}
         </div>
+        <label className="version-change-visibility"><input type="checkbox" checked={showRevisionChanges} onChange={(event) => onShowRevisionChangesChange(event.target.checked)} /> {text.versionShowRevisionChanges}</label>
         {document.isDirty && <p className="version-unsaved-content-notice">{text.versionUnsavedContentNotice}</p>}
         {changesState.kind === "loading" && <p className="version-change-loading">{text.versionDiffLoading}</p>}
         {changesState.kind === "error" && <p className="version-change-error">{changesState.message}</p>}

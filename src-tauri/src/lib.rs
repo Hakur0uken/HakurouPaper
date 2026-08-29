@@ -732,6 +732,7 @@ pub fn run() {
             git::get_version_changes,
             git::get_version_comparison,
             git::get_version_diff,
+            git::get_revision_document_snapshot,
             git::create_version,
             git::get_version_history,
             git::inspect_version_identity,

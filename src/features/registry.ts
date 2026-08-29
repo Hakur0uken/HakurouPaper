@@ -9,6 +9,8 @@ export type FeatureDocumentContext = {
   content: string;
   assetFolder: string | null;
   assets: AssetV1[];
+  /** Current in-memory hakurou.json content; used only by read-only revision rendering. */
+  sidecarContent: string;
   isDirty: boolean;
   versionStatusRevision: number;
 };
@@ -17,6 +19,9 @@ export type FeatureWorkspaceProps = {
   document: FeatureDocumentContext;
   text: UiText;
   onSaveDocument: () => Promise<boolean>;
+  showRevisionChanges: boolean;
+  onShowRevisionChangesChange: (enabled: boolean) => void;
+  onVersionStateChanged: () => void;
   onOpenVersionDiff: (change: VersionChange) => void;
   onOpenVersionHistoryComparison: (version: VersionRecord) => void;
 };

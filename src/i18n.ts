@@ -101,6 +101,7 @@ export type UiText = {
   versionNoHistory: string;
   versionBranchUnavailable: string;
   versionCurrentChanges: string;
+  versionShowRevisionChanges: string;
   versionRefresh: string;
   versionNoChanges: string;
   versionNoDocumentChanges: string;
@@ -119,6 +120,19 @@ export type UiText = {
   versionDiffBinary: string;
   versionComparisonTitle: string;
   versionAdvancedMode: string;
+  versionExitAdvancedMode: string;
+  versionRenderedPreview: string;
+  versionAdvancedCompare: string;
+  versionRenderedLoading: string;
+  versionRenderedFailed: string;
+  versionRenderedChangeCount: (count: number) => string;
+  versionPreviousChange: string;
+  versionNextChange: string;
+  versionPreviewUnsavedContent: string;
+  versionAdvancedUnsavedNotice: string;
+  versionBefore: string;
+  versionAfter: string;
+  versionSettingsChanged: string;
   versionChangedFiles: string;
   versionFilesChanged: (count: number) => string;
   versionLineSummary: (added: number, removed: number) => string;
@@ -331,11 +345,11 @@ export const uiText: Record<UiLanguage, UiText> = {
     documentDelivery: "文稿交付",
     documentDeliveryDescription: "通过 Pandoc 生成交付用 Word 文档；排版由所选 Word 模板决定，不映射编辑器展示设置。",
     versionManagement: "版本管理",
-    versionManagementDescription: "使用本机 Git 管理当前文稿及其专属资源。",
+    versionManagementDescription: "在本机记录文稿版本，可随时比较或恢复历史内容。",
     versionRequiresSavedDocument: "请先保存文稿，再启用版本管理。",
     versionCheckingGit: "正在检测 Git…",
     versionGitAvailable: (version) => `Git 已就绪${version ? ` · ${version}` : ""}`,
-    versionGitUnavailable: "未检测到 Git",
+    versionGitUnavailable: "版本管理不可用",
     versionGitUnavailableDescription: "HakurouPaper 使用标准 Git 进行本地版本管理。安装 Git 后即可使用此功能。",
     getGit: "获取 Git",
     checkGit: "重新检测",
@@ -345,12 +359,13 @@ export const uiText: Record<UiLanguage, UiText> = {
     versionIncludesAssets: (name) => `assets/${name}`,
     enableVersionManagement: "启用版本管理",
     enablingVersionManagement: "正在启用…",
-    versionEnabled: "已启用",
+    versionEnabled: "版本管理已启用",
     versionRepository: "仓库",
     versionCurrentBranch: "当前分支",
     versionNoHistory: "当前尚无历史版本",
     versionBranchUnavailable: "尚未识别分支",
     versionCurrentChanges: "当前修改",
+    versionShowRevisionChanges: "显示版本修改",
     versionRefresh: "刷新",
     versionNoChanges: "当前文稿相对于上一个版本没有修改。",
     versionNoDocumentChanges: "当前文稿内容没有修改；资源修改会随创建版本一并保存。",
@@ -361,7 +376,7 @@ export const uiText: Record<UiLanguage, UiText> = {
     versionChangeRenamed: "已重命名",
     versionDiffTitle: "比较修改",
     versionDiffComparison: "当前版本 ↔ 工作区",
-    versionDiffClose: "关闭比较",
+    versionDiffClose: "退出比较",
     versionDiffOriginal: "当前版本",
     versionDiffWorkingTree: "工作区",
     versionDiffLoading: "正在读取比较内容…",
@@ -369,6 +384,19 @@ export const uiText: Record<UiLanguage, UiText> = {
     versionDiffBinary: "二进制文件。本阶段不会读取或传输其内容。",
     versionComparisonTitle: "版本比较",
     versionAdvancedMode: "高级模式",
+    versionExitAdvancedMode: "退出高级模式",
+    versionRenderedPreview: "修改预览",
+    versionAdvancedCompare: "高级比较",
+    versionRenderedLoading: "正在生成修改预览…",
+    versionRenderedFailed: "无法生成完整文稿预览，请使用高级比较。",
+    versionRenderedChangeCount: (count) => `${count} 处修改`,
+    versionPreviousChange: "上一处",
+    versionNextChange: "下一处",
+    versionPreviewUnsavedContent: "包含尚未保存的编辑内容",
+    versionAdvancedUnsavedNotice: "当前还有尚未保存的编辑内容，高级比较基于最近一次保存的文件。",
+    versionBefore: "修改前",
+    versionAfter: "修改后",
+    versionSettingsChanged: "文稿设置发生变化",
     versionChangedFiles: "文件变化",
     versionFilesChanged: (count) => `${count} 个文件发生变化`,
     versionLineSummary: (added, removed) => `新增 ${added} 行 · 删除 ${removed} 行`,
@@ -382,7 +410,7 @@ export const uiText: Record<UiLanguage, UiText> = {
     versionCreate: "创建版本",
     versionDescription: "版本说明",
     versionDescriptionHint: "简要说明本版本的主要修改（最多 160 字）",
-    versionDescriptionHelp: "记录本版本的主要变化，方便查找",
+    versionDescriptionHelp: "记录本版本的主要变化，方便以后查找。",
     versionCreateVersion: "创建版本",
     versionCreatingVersion: "正在创建…",
     versionCreated: "已创建版本。",
@@ -581,11 +609,11 @@ export const uiText: Record<UiLanguage, UiText> = {
     documentDelivery: "Document Delivery",
     documentDeliveryDescription: "Create a delivery-ready Word document with Pandoc. The selected Word template controls layout; editor display settings are not exported.",
     versionManagement: "Version Management",
-    versionManagementDescription: "Use the system Git installation to manage the current document and its dedicated assets.",
+    versionManagementDescription: "Record document versions locally, then compare or restore earlier content whenever needed.",
     versionRequiresSavedDocument: "Save the document before enabling version management.",
     versionCheckingGit: "Checking Git…",
     versionGitAvailable: (version) => `Git is ready${version ? ` · ${version}` : ""}`,
-    versionGitUnavailable: "Git was not found",
+    versionGitUnavailable: "Version management is unavailable",
     versionGitUnavailableDescription: "HakurouPaper uses standard Git for local version management. Install Git to use this feature.",
     getGit: "Get Git",
     checkGit: "Check again",
@@ -595,12 +623,13 @@ export const uiText: Record<UiLanguage, UiText> = {
     versionIncludesAssets: (name) => `assets/${name}`,
     enableVersionManagement: "Enable Version Management",
     enablingVersionManagement: "Enabling…",
-    versionEnabled: "Enabled",
+    versionEnabled: "Version management is enabled",
     versionRepository: "Repository",
     versionCurrentBranch: "Current branch",
     versionNoHistory: "There is no version history yet",
     versionBranchUnavailable: "No branch identified yet",
     versionCurrentChanges: "Current Changes",
+    versionShowRevisionChanges: "Show revision changes",
     versionRefresh: "Refresh",
     versionNoChanges: "The current document has no changes compared with the previous version.",
     versionNoDocumentChanges: "The document content has not changed; asset changes will be saved with the version.",
@@ -611,7 +640,7 @@ export const uiText: Record<UiLanguage, UiText> = {
     versionChangeRenamed: "Renamed",
     versionDiffTitle: "Compare Changes",
     versionDiffComparison: "Current version ↔ Working tree",
-    versionDiffClose: "Close comparison",
+    versionDiffClose: "Exit Comparison",
     versionDiffOriginal: "Current version",
     versionDiffWorkingTree: "Working tree",
     versionDiffLoading: "Loading comparison…",
@@ -619,6 +648,19 @@ export const uiText: Record<UiLanguage, UiText> = {
     versionDiffBinary: "Binary file. Its contents are not read or transferred in this phase.",
     versionComparisonTitle: "Version Comparison",
     versionAdvancedMode: "Advanced mode",
+    versionExitAdvancedMode: "Exit Advanced Mode",
+    versionRenderedPreview: "Revision Preview",
+    versionAdvancedCompare: "Advanced Comparison",
+    versionRenderedLoading: "Generating revision preview…",
+    versionRenderedFailed: "A complete document preview could not be generated. Use Advanced Comparison instead.",
+    versionRenderedChangeCount: (count) => `${count} change${count === 1 ? "" : "s"}`,
+    versionPreviousChange: "Previous Change",
+    versionNextChange: "Next Change",
+    versionPreviewUnsavedContent: "Includes unsaved edits",
+    versionAdvancedUnsavedNotice: "This document still has unsaved edits. Advanced Comparison uses the most recently saved file.",
+    versionBefore: "Before",
+    versionAfter: "After",
+    versionSettingsChanged: "Document settings changed",
     versionChangedFiles: "Changed Files",
     versionFilesChanged: (count) => `${count} file${count === 1 ? "" : "s"} changed`,
     versionLineSummary: (added, removed) => `${added} added · ${removed} removed`,

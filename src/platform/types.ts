@@ -119,6 +119,24 @@ export type RevisionDescriptor = {
   authorEmail?: string;
 };
 
+/** A read-only image resource captured with a document revision. */
+export type RevisionAssetSnapshot = {
+  /** Markdown-facing path, e.g. ./assets/paper-assets/figure.png. */
+  path: string;
+  mimeType: string;
+  /** Base64 image bytes. Historical resources are never written into the document folder. */
+  dataBase64: string;
+};
+
+/** Everything required to render a revision without changing the working tree. */
+export type RevisionDocumentSnapshot = {
+  revision: RevisionDescriptor;
+  markdown: string;
+  /** hakurou.json content when present; consumers render its effects rather than exposing JSON. */
+  metadata?: string;
+  assets: RevisionAssetSnapshot[];
+};
+
 export type VersionComparisonSummary = {
   changedFiles: number;
   addedLines: number;
@@ -271,6 +289,15 @@ export interface VersionControlService {
   getChanges(input: { documentPath: string; assetFolder: string | null }): Promise<VersionChange[]>;
   getComparison(input: { documentPath: string; assetFolder: string | null; versionId?: string | null }): Promise<VersionComparison>;
   getDiff(input: { documentPath: string; assetFolder: string | null; path: string; versionId?: string | null }): Promise<FileDiff>;
+  getRevisionDocumentSnapshot(input: {
+    documentPath: string;
+    assetFolder: string | null;
+    /** A full commit id; omit it with useWorkingCopy for the in-memory current document. */
+    revisionId?: string | null;
+    useWorkingCopy?: boolean;
+    /** Unsaved editor content is used only for the right-hand current-document snapshot. */
+    workingContent?: string | null;
+  }): Promise<RevisionDocumentSnapshot>;
   createVersion(input: CreateVersionInput): Promise<VersionRecord>;
   getHistory(input: { documentPath: string; assetFolder: string | null; limit?: number }): Promise<VersionRecord[]>;
   inspectIdentity(input: { documentPath: string; assetFolder: string | null }): Promise<VersionAuthorIdentity>;

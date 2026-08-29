@@ -3,6 +3,10 @@ import { VersionControlIcon } from "./VersionControlIcon";
 import { VersionControlWorkspace } from "./VersionControlWorkspace";
 
 export { VersionDiffViewer } from "./VersionDiffViewer";
+export { RenderedRevisionViewer } from "./RenderedRevisionViewer";
+export { RevisionOverviewRuler } from "./RevisionOverviewRuler";
+export { useCurrentRevisionLocations } from "./revisionLocationState";
+export type { RevisionLocation } from "./revisionTypes";
 
 export const versionControlSidebarContribution: SidebarContribution = {
   id: "version-control",
