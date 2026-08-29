@@ -10,7 +10,7 @@ export type ApplicationAppearanceSettings = {
 };
 
 const storageKey = "hakurou.application-appearance";
-const defaultFont: DocumentFontSettings = { preset: "elegant", weight: 400 };
+const defaultFont: DocumentFontSettings = { preset: "standard", weight: 400 };
 
 export function defaultApplicationAppearance(): ApplicationAppearanceSettings {
   return { version: 1, font: { ...defaultFont }, tableStyle: "standard", firstLineIndent: false };

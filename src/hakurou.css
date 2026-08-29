@@ -81,8 +81,8 @@ button { font: inherit; }
 .workspace-layout { min-height: 0; display: grid; grid-template-columns: 52px minmax(0, 1fr); }
 .workspace-layout.has-sidebar { grid-template-columns: 52px 214px minmax(0, 1fr); }
 .workspace-layout.has-feature-sidebar { grid-template-columns: 52px minmax(286px, 340px) minmax(0, 1fr); }
-.app-rail { z-index: 2; min-height: calc(100% + 39px); margin-top: -39px; display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 8px 7px 14px; border-right: 1px solid #e4e1da; background: #f2f1ed; }
-.rail-button { display: grid; width: 38px; height: 38px; place-items: center; border: 0; border-left: 2px solid transparent; border-radius: 0; padding: 0; color: #737068; background: transparent; cursor: pointer; }
+.app-rail { z-index: 2; min-height: calc(100% + 39px); margin-top: -39px; display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 0 0 14px; border-right: 1px solid #e4e1da; background: #f2f1ed; }
+.rail-button { display: grid; width: 100%; height: 52px; place-items: center; border: 0; border-left: 2px solid transparent; border-radius: 0; padding: 0; color: #737068; background: transparent; cursor: pointer; }
 .rail-button:hover, .rail-button.is-active { border-color: #3f5747; color: #3f5747; background: #e9e7e1; }
 .rail-icon { display: block; width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.35; }
 
@@ -243,8 +243,10 @@ button { font: inherit; }
 .restore-message-field input { width: 100%; border: 1px solid #d9d6ce; padding: 7px 8px; color: #403d37; background: #fffefa; box-sizing: border-box; font: inherit; }
 .version-repository-card { opacity: .9; }
 .version-diff-viewer { min-width: 0; overflow-x: hidden; overflow-y: auto; padding: 34px max(32px, 5vw) 52px; color: #403d37; background: #f8f7f4; }
-.version-diff-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; width: min(100%, 1100px); margin: 0 auto 28px; border-bottom: 1px solid #e1ded7; padding-bottom: 16px; }
-.version-diff-header-actions { display: flex; flex: 0 0 auto; gap: 7px; }
+.version-diff-header { position: relative; width: min(100%, 1100px); margin: 0 auto 28px; border-bottom: 1px solid #e1ded7; padding-bottom: 16px; }
+.version-diff-header-title { min-width: 0; padding-right: 176px; }
+.version-diff-header-actions { position: absolute; top: 0; right: 0; display: flex; width: max-content; max-width: 100%; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.version-diff-header-comparison { min-width: 0; }
 .version-diff-header h1 { overflow: hidden; margin: 0; color: #36342f; text-overflow: ellipsis; white-space: nowrap; font-size: 21px; font-weight: 600; line-height: 1.35; }
 .version-diff-header h1 small { margin-left: 7px; color: #8a857c; font-size: 12px; font-weight: 500; letter-spacing: 0; }
 .version-diff-header p { margin: 5px 0 0; color: #817c72; font-size: 12px; }
@@ -252,9 +254,9 @@ button { font: inherit; }
 .version-diff-header button:hover { border-color: #a8b9a7; color: #31503b; background: #edf0eb; }
 .version-diff-header button.is-primary { border-color: #4f6d55; color: #f8f7f4; background: #54715a; }
 .version-diff-header button.is-primary:hover { border-color: #45624b; color: #f8f7f4; background: #45624b; }
-.version-revision-comparison { display: flex; align-items: stretch; gap: 10px; margin-top: 13px; color: #827d74; }
+.version-revision-comparison { display: flex; align-items: stretch; min-width: 0; gap: 10px; margin-top: 13px; color: #827d74; }
 .version-revision-comparison > span { align-self: center; color: #9a958b; font-size: 14px; }
-.version-revision-card { min-width: 112px; border-left: 2px solid #b9c9b7; padding: 3px 9px; background: #f3f5f1; }
+.version-revision-card { flex: 0 1 auto; min-width: 0; border-left: 2px solid #b9c9b7; padding: 3px 9px; background: #f3f5f1; }
 .version-revision-card.is-currentDocument { border-left-color: #8ea78d; background: #f1f5ef; }
 .version-revision-card.is-empty { border-left-color: #c5b8a1; background: #f6f3ed; }
 .version-revision-card > span { display: block; color: #888278; font-size: 10px; line-height: 1.35; }

@@ -242,7 +242,7 @@ function App() {
   const [recentFilesMenuOpen, setRecentFilesMenuOpen] = useState(false);
   const [viewSubmenu, setViewSubmenu] = useState<ViewSubmenu>(null);
   const [customFontTarget, setCustomFontTarget] = useState<AppearanceScope | null>(null);
-  const [customFontDraft, setCustomFontDraft] = useState<CustomFontDraft>({ chineseFamily: "", latinFamily: "", weight: 400, baseFont: fontForPreset("elegant") });
+  const [customFontDraft, setCustomFontDraft] = useState<CustomFontDraft>({ chineseFamily: "", latinFamily: "", weight: 400, baseFont: fontForPreset("standard") });
   const [activeFeatureId, setActiveFeatureId] = useState<string | null>(null);
   const [versionStatusRevision, setVersionStatusRevision] = useState(0);
   const [activeVersionComparison, setActiveVersionComparison] = useState<ActiveVersionComparison | null>(null);
@@ -807,9 +807,9 @@ function App() {
 
   const fontPresetIsActive = (font: DocumentFontSettings | undefined, preset: DocumentFontSettings["preset"]) => font?.preset === preset;
   const renderFontOptions = (scope: AppearanceScope, selectedFont: DocumentFontSettings | undefined) => <>
-    <button type="button" className={fontPresetIsActive(selectedFont, "elegant") ? "is-active" : ""} onClick={() => applyFont(scope, fontForPreset("elegant"))}>{text.elegant}</button>
-    <button type="button" className={fontPresetIsActive(selectedFont, "modern") ? "is-active" : ""} onClick={() => applyFont(scope, fontForPreset("modern"))}>{text.modern}</button>
     <button type="button" className={fontPresetIsActive(selectedFont, "standard") ? "is-active" : ""} onClick={() => applyFont(scope, fontForPreset("standard"))}>{text.standard}</button>
+    <button type="button" className={fontPresetIsActive(selectedFont, "modern") ? "is-active" : ""} onClick={() => applyFont(scope, fontForPreset("modern"))}>{text.modern}</button>
+    <button type="button" className={fontPresetIsActive(selectedFont, "elegant") ? "is-active" : ""} onClick={() => applyFont(scope, fontForPreset("elegant"))}>{text.elegant}</button>
     <button type="button" className={fontPresetIsActive(selectedFont, "custom") ? "is-active" : ""} onClick={() => openCustomFontDialog(scope)}>{text.custom}</button>
   </>;
 

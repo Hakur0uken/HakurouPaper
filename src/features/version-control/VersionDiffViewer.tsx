@@ -131,21 +131,21 @@ export function VersionDiffViewer({ document, initialPath, versionId, text, onCl
 
   return <section className="version-diff-viewer" aria-label={text.versionComparisonTitle}>
     <header className="version-diff-header">
-      <div>
+      <div className="version-diff-header-title">
         <h1>{text.versionComparisonTitle} <small>{text.versionAdvancedMode}</small></h1>
-        {comparison && <>
-          <div className="version-revision-comparison">
-            <RevisionCard revision={comparison.baseRevision} side="base" text={text} />
-            <span aria-hidden="true">↔</span>
-            <RevisionCard revision={comparison.targetRevision} side="target" text={text} />
-          </div>
-          <p className="version-comparison-summary">{text.versionFilesChanged(comparison.summary.changedFiles)} · {text.versionLineSummary(comparison.summary.addedLines, comparison.summary.removedLines)}</p>
-        </>}
       </div>
       <div className="version-diff-header-actions">
         {versionId && comparison?.targetRevision.kind === "version" && <button type="button" className="is-primary" onClick={() => onRestoreVersion(versionId, comparison.targetRevision.title ?? comparison.targetRevision.shortId ?? text.versionThisVersion)}>{text.versionRestoreThis}</button>}
         <button type="button" onClick={onClose}>{text.versionDiffClose}</button>
       </div>
+      {comparison && <div className="version-diff-header-comparison">
+        <div className="version-revision-comparison">
+          <RevisionCard revision={comparison.baseRevision} side="base" text={text} />
+          <span aria-hidden="true">↔</span>
+          <RevisionCard revision={comparison.targetRevision} side="target" text={text} />
+        </div>
+        <p className="version-comparison-summary">{text.versionFilesChanged(comparison.summary.changedFiles)} · {text.versionLineSummary(comparison.summary.addedLines, comparison.summary.removedLines)}</p>
+      </div>}
     </header>
 
     {comparisonState.kind === "loading" && <p className="version-diff-message">{text.versionDiffLoading}</p>}
