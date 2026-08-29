@@ -28,7 +28,7 @@ type WorkerResult =
 const emptyState: RevisionLocationState = { kind: "idle", locations: [] };
 
 function baselineKey(document: FeatureDocumentContext) {
-  return document.path ? `${document.path}\u0000${document.assetFolder ?? ""}\u0000${document.versionStatusRevision}` : "";
+  return document.path ? `${document.path}\u0000${document.assetFolder ?? ""}\u0000${document.headRevisionEpoch}` : "";
 }
 
 function currentAssetPaths(document: FeatureDocumentContext) {

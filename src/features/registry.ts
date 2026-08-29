@@ -12,7 +12,10 @@ export type FeatureDocumentContext = {
   /** Current in-memory hakurou.json content; used only by read-only revision rendering. */
   sidecarContent: string;
   isDirty: boolean;
-  versionStatusRevision: number;
+  /** Increments only when the immutable Git HEAD baseline changes. */
+  headRevisionEpoch: number;
+  /** Increments when the on-disk manuscript scope needs Git-status refresh. */
+  workingTreeEpoch: number;
 };
 
 export type FeatureWorkspaceProps = {

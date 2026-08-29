@@ -105,6 +105,7 @@ export type UiText = {
   versionRefresh: string;
   versionNoChanges: string;
   versionNoDocumentChanges: string;
+  versionManuscriptChanged: string;
   versionUnsavedContentNotice: string;
   versionChangeModified: string;
   versionChangeAdded: string;
@@ -369,6 +370,7 @@ export const uiText: Record<UiLanguage, UiText> = {
     versionRefresh: "刷新",
     versionNoChanges: "当前文稿相对于上一个版本没有修改。",
     versionNoDocumentChanges: "当前文稿内容没有修改；资源修改会随创建版本一并保存。",
+    versionManuscriptChanged: "文稿及相关资源已修改",
     versionUnsavedContentNotice: "文稿有尚未写入磁盘的修改。Git 修改状态基于最近一次保存内容。",
     versionChangeModified: "已修改",
     versionChangeAdded: "新增",
@@ -633,6 +635,7 @@ export const uiText: Record<UiLanguage, UiText> = {
     versionRefresh: "Refresh",
     versionNoChanges: "The current document has no changes compared with the previous version.",
     versionNoDocumentChanges: "The document content has not changed; asset changes will be saved with the version.",
+    versionManuscriptChanged: "The manuscript or its related resources have changed",
     versionUnsavedContentNotice: "This document has changes not yet written to disk. Git status is based on the most recently saved content.",
     versionChangeModified: "Modified",
     versionChangeAdded: "Added",

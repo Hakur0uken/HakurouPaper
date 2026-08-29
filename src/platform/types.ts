@@ -126,6 +126,8 @@ export type RevisionAssetManifest = {
   mimeType: string;
   /** Git object id when known, so image changes can be compared without reading bytes. */
   contentHash?: string;
+  /** A trusted VCS change token for a working-tree asset whose bytes stay lazy. */
+  contentIdentity?: string;
 };
 
 /** Binary image bytes loaded only after a revision image enters the viewport. */

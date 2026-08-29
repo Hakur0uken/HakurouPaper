@@ -395,7 +395,7 @@ button { font: inherit; }
 .hakurou-formula-block-layout { display: grid; grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr); align-items: center; min-width: 0; }
 .hakurou-formula-block .hakurou-formula-preview { grid-column: 2; min-width: 0; }
 .hakurou-formula-number { grid-column: 3; justify-self: end; margin-left: 18px; color: #5f5a51; font-family: "Times New Roman", Georgia, serif; font-size: .92em; white-space: nowrap; }
-.hakurou-formula .katex-display { margin: 0; overflow-x: auto; overflow-y: hidden; padding: 3px 0; }
+.hakurou-formula .katex-display { margin: 0; padding: 3px 0; }
 .hakurou-formula-source { display: block; width: 100%; min-height: 84px; resize: vertical; border: 1px solid #c7c3ba; border-left: 2px solid #3f5747; padding: 12px 14px; outline: 0; color: #37352f; background: #fbfaf7; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 14px; line-height: 1.6; }
 .hakurou-formula-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; border: 1px solid #e4e1da; border-top: 0; padding: 6px 8px 6px 12px; color: #938e85; background: #fbfaf7; font-family: "Microsoft YaHei UI", "Noto Sans SC", sans-serif; font-size: 11px; }
 .hakurou-formula-actions > div { display: flex; gap: 5px; }

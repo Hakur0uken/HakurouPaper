@@ -8,12 +8,13 @@ import { history } from "@milkdown/plugin-history";
 import { listener, listenerCtx } from "@milkdown/plugin-listener";
 import { nord } from "@milkdown/theme-nord";
 import { EditorControls } from "./EditorControls";
-import { featureRegistry, RenderedRevisionViewer, VersionDiffViewer, type FeatureDocumentContext } from "./features";
+import { featureRegistry, releaseHistoricalAssetsForDocument, releaseRevisionDataForDocument, RenderedRevisionViewer, VersionDiffViewer, type FeatureDocumentContext } from "./features";
 import { uiText, type UiLanguage, type UiText } from "./i18n";
 import { OutlineRailIcon } from "./ui/RailIcons";
 import { createImageAssetPlugins } from "./editor/image";
 import { formulaPlugins } from "./math";
 import { HAKUROU_SCHEMA_VERSION, collectDocumentImageAssets, createDocumentSchema, parseDocumentSidecar, serializeDocumentSidecar, type AssetV1, type DocumentV1 } from "./core/schema";
+import { markdownPastePlugin } from "./markdownPaste";
 import { platform, type RestoreStrategy, type VersionChange, type VersionRecord } from "./platform";
 import { spreadsheetTablePastePlugin } from "./spreadsheetTablePaste";
 import { createTableDecorationPlugin, setTableDefaultStyle, tableDefaultStylePluginKey } from "./tableDecorations";
@@ -27,9 +28,60 @@ import hakurouAppIcon from "./assets/hakurou-paper-icon.png";
 import "./App.css";
 import "./hakurou.css";
 
-const starterDocument = `# 未命名文稿
+const starterDocument = `# 欢迎使用 HakurouPaper
 
-从这里开始写作。HakurouPaper 会将你的内容保存为标准 Markdown 文件，让它能在 Typora、VS Code 和任何支持 Markdown 的工具中继续使用。
+**让 AI 像处理代码一样理解和修改文稿，让人像编辑 Word 一样自然写作。**
+
+HakurouPaper 是一个为 **人与 AI 共同写作** 而设计的本地优先写作空间。
+
+你可以像使用普通文档软件一样直接写作，无需学习 Markdown，也无需了解 Git。文稿在底层始终保持为清晰、开放的 Markdown，因此既适合人阅读和编辑，也适合 AI 理解、修改和持续协作。
+
+## 在这里开始写作
+
+标题、正文、图片、表格和公式都可以直接在文稿中编辑。
+
+例如，双击下面的公式即可修改它；你也可以直接粘贴 LaTeX 公式：
+
+$$
+\\sigma\\_Z \\approx \\frac{Z^2}{fb}\\sigma\\_d
+$$
+
+表格也可以直接编辑。将鼠标移入表格即可调整样式和结构，也可以从 Excel 或网页中直接粘贴表格。
+
+| 写作阶段  | HakurouPaper    |
+| ----- | --------------- |
+| 起草与修改 | 可视化文稿编辑         |
+| AI 协作 | 清晰、开放的 Markdown |
+| 版本记录  | 本地版本管理          |
+| 最终交付  | Word            |
+
+## 修改有迹可循
+
+无论修改来自你自己还是 AI，都不应该变成一团难以追踪的变化。
+
+创建一个版本后继续写作，HakurouPaper 会在文稿中标记发生变化的位置。需要检查时，可以查看排版后的修改预览；需要回到过去，也可以恢复任意历史版本。
+
+正文仍然是正文，公式仍然是公式，图片仍然是图片。
+
+你得到的是 Git 带来的版本能力，但不需要先学会 Git。
+
+## 文稿始终保持开放
+
+Markdown 是写作和 AI 协作的底层，Word 可以继续作为最终的交付格式。
+
+正文和公式保留在标准 Markdown 中，图片等资源保存在文稿附近，版本历史则由标准 Git 管理。
+
+即使以后换用其他支持 Markdown 的工具，你仍然可以继续打开和修改自己的文稿。
+
+**你的文稿始终属于你。**
+
+---
+
+**这就是一篇普通的 HakurouPaper 文稿。**
+
+修改它、删除它，或者新建一篇文稿开始写作。
+
+也可以打开左侧工具栏，看看文稿交付和版本管理。
 `;
 
 type DocumentTab = {
@@ -37,8 +89,15 @@ type DocumentTab = {
   title: string;
   path: string | null;
   content: string;
+  /** Value used only when Milkdown is first created or deliberately reloaded. */
   initialContent: string;
+  /** Explicit replacement generation; ordinary saves must never change this. */
+  documentLoadRevision: number;
   isDirty: boolean;
+  /** Monotonic in-memory edit generation for every persistable document mutation. */
+  editRevision: number;
+  /** Last edit generation known to be fully written to Markdown and hakurou.json. */
+  savedRevision: number;
   assetFolder: string | null;
   document: DocumentV1;
   assets: AssetV1[];
@@ -48,6 +107,7 @@ type DocumentTab = {
 type WritingEditorProps = {
   documentId: string;
   initialContent: string;
+  documentLoadRevision: number;
   onContentChange: (documentId: string, markdown: string) => void;
   documentPath: string | null;
   assetFolder: string | null;
@@ -130,7 +190,10 @@ function createDocument(
     path,
     content: markdown,
     initialContent: markdown,
+    documentLoadRevision: 0,
     isDirty: false,
+    editRevision: 0,
+    savedRevision: 0,
     assetFolder: options.assetFolder ?? findAssetFolder(markdown),
     document: options.document ?? createDocumentSchema(),
     assets: options.assets ?? [],
@@ -149,17 +212,29 @@ function countWords(markdown: string) {
   return cjkCharacters + latinWords;
 }
 
-function WritingEditor({ documentId, initialContent, onContentChange, documentPath, assetFolder, assets, onAssetImported, onAssetResize, formatSettings, onFormatChange, onSelectionChange, text, tableStyle, firstLineIndent, showRevisionChanges, revisionLocations, revisionBaselineKey, onOpenRevisionPreview }: WritingEditorProps) {
+function WritingEditor({ documentId, initialContent, documentLoadRevision, onContentChange, documentPath, assetFolder, assets, onAssetImported, onAssetResize, formatSettings, onFormatChange, onSelectionChange, text, tableStyle, firstLineIndent, showRevisionChanges, revisionLocations, revisionBaselineKey, onOpenRevisionPreview }: WritingEditorProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [editorView, setEditorView] = useState<import("@milkdown/prose/view").EditorView | null>(null);
   const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(null);
   const unresolvedFormatSettingsRef = useRef(emptyDocumentFormatSettings());
   const currentFormatSettingsRef = useRef(formatSettings);
   const currentAssetsRef = useRef(assets);
+  const currentDocumentPathRef = useRef(documentPath);
+  const currentAssetFolderRef = useRef(assetFolder);
+  const contentChangeRef = useRef(onContentChange);
+  const assetImportedRef = useRef(onAssetImported);
+  const assetResizeRef = useRef(onAssetResize);
+  const formatChangeRef = useRef(onFormatChange);
   const openRevisionPreviewRef = useRef(onOpenRevisionPreview);
   const revisionLocationsRef = useRef(revisionLocations);
   currentFormatSettingsRef.current = formatSettings;
   currentAssetsRef.current = assets;
+  currentDocumentPathRef.current = documentPath;
+  currentAssetFolderRef.current = assetFolder;
+  contentChangeRef.current = onContentChange;
+  assetImportedRef.current = onAssetImported;
+  assetResizeRef.current = onAssetResize;
+  formatChangeRef.current = onFormatChange;
   openRevisionPreviewRef.current = onOpenRevisionPreview;
   revisionLocationsRef.current = revisionLocations;
 
@@ -185,7 +260,7 @@ function WritingEditor({ documentId, initialContent, onContentChange, documentPa
         return {
           update: (nextView, previousState) => {
             if (!disposed && documentFormattingChanged(previousState, nextView.state)) {
-              onFormatChange(documentId, collectDocumentFormatSettings(nextView.state, unresolvedFormatSettingsRef.current, currentFormatSettingsRef.current.defaults));
+              formatChangeRef.current(documentId, collectDocumentFormatSettings(nextView.state, unresolvedFormatSettingsRef.current, currentFormatSettingsRef.current.defaults));
             }
           },
           destroy: () => {
@@ -200,11 +275,12 @@ function WritingEditor({ documentId, initialContent, onContentChange, documentPa
       .config((ctx) => {
         ctx.set(rootCtx, editorHost);
         ctx.set(defaultValueCtx, initialContent);
-        ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => onContentChange(documentId, markdown));
+        ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => contentChangeRef.current(documentId, markdown));
       })
       .use(commonmark)
       .use(gfm)
       .use(spreadsheetTablePastePlugin)
+      .use(markdownPastePlugin)
       .use(history)
       .use(listener)
       .use(formulaPlugins)
@@ -212,10 +288,12 @@ function WritingEditor({ documentId, initialContent, onContentChange, documentPa
         {
           documentPath,
           assetFolder,
+          getDocumentPath: () => currentDocumentPathRef.current,
+          getAssetFolder: () => currentAssetFolderRef.current,
           assets: platform.assets,
           findAsset: (displayPath) => currentAssetsRef.current.find((asset) => asset.preview?.path === displayPath || asset.source.path === displayPath),
-          onAssetImported: (asset, folder) => onAssetImported(documentId, asset, folder),
-          onAssetResize: (assetId, width) => onAssetResize(documentId, assetId, width),
+          onAssetImported: (asset, folder) => assetImportedRef.current(documentId, asset, folder),
+          onAssetResize: (assetId, width) => assetResizeRef.current(documentId, assetId, width),
           onImportError: (error) => window.alert(String(error)),
         },
       ))
@@ -233,7 +311,10 @@ function WritingEditor({ documentId, initialContent, onContentChange, documentPa
       void editor.destroy().catch(console.error);
       if (mount.contains(editorHost)) mount.replaceChildren();
     };
-  }, [documentId, documentPath, initialContent, onAssetImported, onAssetResize, onContentChange, onFormatChange]);
+  // A save may update path and saved state, but must preserve the live
+  // ProseMirror instance, selection, scroll position, and undo history.
+  // `initialContent` is intentionally read only for a true document load.
+  }, [documentId, documentLoadRevision]);
 
   useEffect(() => {
     if (!editorView) return;
@@ -280,7 +361,8 @@ function App() {
   const [customFontTarget, setCustomFontTarget] = useState<AppearanceScope | null>(null);
   const [customFontDraft, setCustomFontDraft] = useState<CustomFontDraft>({ chineseFamily: "", latinFamily: "", weight: 400, baseFont: fontForPreset("standard") });
   const [activeFeatureId, setActiveFeatureId] = useState<string | null>(null);
-  const [versionStatusRevision, setVersionStatusRevision] = useState(0);
+  const [headRevisionEpoch, setHeadRevisionEpoch] = useState(0);
+  const [workingTreeEpoch, setWorkingTreeEpoch] = useState(0);
   const [activeVersionComparison, setActiveVersionComparison] = useState<ActiveVersionComparison | null>(null);
   const [showRevisionChanges, setShowRevisionChanges] = useState(() => window.localStorage.getItem(revisionChangesVisibleStorageKey) === "true");
   const [restoreDialog, setRestoreDialog] = useState<RestoreDialog>(null);
@@ -311,8 +393,9 @@ function App() {
       format: activeDocument.formatSettings,
     }),
     isDirty: activeDocument.isDirty,
-    versionStatusRevision,
-  }), [activeDocument.assetFolder, activeDocument.assets, activeDocument.content, activeDocument.document, activeDocument.formatSettings, activeDocument.isDirty, activeDocument.path, activeDocument.title, versionStatusRevision]);
+    headRevisionEpoch,
+    workingTreeEpoch,
+  }), [activeDocument.assetFolder, activeDocument.assets, activeDocument.content, activeDocument.document, activeDocument.formatSettings, activeDocument.isDirty, activeDocument.path, activeDocument.title, headRevisionEpoch, workingTreeEpoch]);
   const revisionLocationState = useCurrentRevisionLocations(featureDocument, showRevisionChanges);
   const revisionLocations = revisionLocationState.locations;
   const effectiveDocumentDefaults = useMemo(() => ({
@@ -352,26 +435,32 @@ function App() {
   }, [activeDocument.content]);
 
   const updateDocument = useCallback((documentId: string, markdown: string) => {
-    setTabs((currentTabs) => currentTabs.map((tab) => (
-      tab.id === documentId ? { ...tab, content: markdown, assetFolder: tab.assetFolder ?? findAssetFolder(markdown), isDirty: true } : tab
-    )));
+    setTabs((currentTabs) => currentTabs.map((tab) => {
+      if (tab.id !== documentId || tab.content === markdown) return tab;
+      return { ...tab, content: markdown, assetFolder: tab.assetFolder ?? findAssetFolder(markdown), isDirty: true, editRevision: tab.editRevision + 1 };
+    }));
   }, []);
 
   const updateDocumentAsset = useCallback((documentId: string, asset: AssetV1, assetFolder: string) => {
     setTabs((currentTabs) => currentTabs.map((tab) => {
       if (tab.id !== documentId) return tab;
       const assets = [...tab.assets.filter((current) => current.assetId !== asset.assetId), asset];
-      return { ...tab, assets, assetFolder, isDirty: true };
+      return { ...tab, assets, assetFolder, isDirty: true, editRevision: tab.editRevision + 1 };
     }));
+    // Asset import writes into the document scope immediately, so refresh the
+    // Git-status sidebar without disturbing the immutable HEAD baseline.
+    setWorkingTreeEpoch((epoch) => epoch + 1);
   }, []);
 
   const resizeDocumentAsset = useCallback((documentId: string, assetId: string, width: number) => {
     setTabs((currentTabs) => currentTabs.map((tab) => {
       if (tab.id !== documentId) return tab;
+      const currentAsset = tab.assets.find((asset) => asset.assetId === assetId);
+      if (!currentAsset || currentAsset.display?.width === width) return tab;
       const assets = tab.assets.map((asset) => (
         asset.assetId === assetId ? { ...asset, display: { width } } : asset
       ));
-      return { ...tab, assets, isDirty: true };
+      return { ...tab, assets, isDirty: true, editRevision: tab.editRevision + 1 };
     }));
   }, []);
 
@@ -387,7 +476,7 @@ function App() {
       const { documentFingerprint: _currentFingerprint, ...currentComparable } = tab.formatSettings;
       const { documentFingerprint: _nextFingerprint, ...nextComparable } = nextSettings;
       if (JSON.stringify(currentComparable) === JSON.stringify(nextComparable)) return tab;
-      return { ...tab, formatSettings: nextSettings, isDirty: true };
+      return { ...tab, formatSettings: nextSettings, isDirty: true, editRevision: tab.editRevision + 1 };
     }));
   }, []);
 
@@ -396,7 +485,7 @@ function App() {
       if (tab.id !== activeDocument.id) return tab;
       const defaults = { ...tab.formatSettings.defaults, ...updates };
       if (JSON.stringify(defaults) === JSON.stringify(tab.formatSettings.defaults)) return tab;
-      return { ...tab, formatSettings: { ...tab.formatSettings, defaults }, isDirty: true };
+      return { ...tab, formatSettings: { ...tab.formatSettings, defaults }, isDirty: true, editRevision: tab.editRevision + 1 };
     }));
   }, [activeDocument.id]);
 
@@ -448,9 +537,6 @@ function App() {
   const updateSelectedText = useCallback((text: string | null) => setSelectedText(text), []);
 
   const activateDocument = useCallback((documentId: string) => {
-    setTabs((currentTabs) => currentTabs.map((tab) => (
-      tab.id === documentId ? { ...tab, initialContent: tab.content } : tab
-    )));
     setActiveVersionComparison(null);
     setActiveTabId(documentId);
   }, []);
@@ -531,6 +617,7 @@ function App() {
   }, [openDocumentPath, text.markdown, text.openMarkdownDocument]);
 
   const handleSave = useCallback(async () => {
+    const documentId = activeDocument.id;
     let targetPath = activeDocument.path;
     if (!targetPath) {
       const chosenPath = await platform.dialogs.saveMarkdown({
@@ -542,25 +629,47 @@ function App() {
       targetPath = chosenPath.endsWith(".md") ? chosenPath : `${chosenPath}.md`;
     }
     try {
+      // Capture one coherent bundle before I/O. Later editor mutations advance
+      // editRevision and are intentionally left dirty when this save completes.
+      const savingDocument = tabsRef.current.find((tab) => tab.id === documentId) ?? activeDocument;
+      const savingRevision = savingDocument.editRevision;
       const formatSettings = {
-        ...activeDocument.formatSettings,
-        documentFingerprint: documentContentFingerprint(activeDocument.content),
+        ...savingDocument.formatSettings,
+        documentFingerprint: documentContentFingerprint(savingDocument.content),
       };
       const sidecarContent = serializeDocumentSidecar({
         schemaVersion: HAKUROU_SCHEMA_VERSION,
-        document: activeDocument.document,
-        assets: activeDocument.assets,
+        document: savingDocument.document,
+        assets: savingDocument.assets,
         format: formatSettings,
       });
-      await platform.files.writeMarkdown(targetPath, activeDocument.content);
-      const storedFormat = await platform.files.writeDocumentFormat(targetPath, activeDocument.assetFolder, sidecarContent);
+      await platform.files.writeMarkdown(targetPath, savingDocument.content);
+      const storedFormat = await platform.files.writeDocumentFormat(targetPath, savingDocument.assetFolder, sidecarContent);
       const title = (targetPath.split(/[\\/]/).pop() ?? "未命名文稿").replace(/\.md$/i, "");
-      setTabs((currentTabs) => currentTabs.map((tab) => (
-        tab.id === activeDocument.id ? { ...tab, path: targetPath, title, initialContent: tab.content, assetFolder: storedFormat.assetFolder, formatSettings, isDirty: false } : tab
-      )));
-      setVersionStatusRevision((revision) => revision + 1);
+      const snapshotWasCurrent = tabsRef.current.find((tab) => tab.id === documentId)?.editRevision === savingRevision;
+      setTabs((currentTabs) => currentTabs.map((tab) => {
+        if (tab.id !== documentId) return tab;
+        if (tab.editRevision !== savingRevision) {
+          // A newer in-memory edit was not part of the just-written snapshot.
+          // Preserve its metadata and visible dirty state instead of claiming
+          // that the disk now contains it.
+          return { ...tab, path: targetPath, title, isDirty: true };
+        }
+        return {
+          ...tab,
+          path: targetPath,
+          title,
+          assetFolder: storedFormat.assetFolder,
+          formatSettings,
+          isDirty: false,
+          savedRevision: savingRevision,
+        };
+      }));
+      setWorkingTreeEpoch((epoch) => epoch + 1);
       rememberRecentFile(targetPath);
-      return true;
+      // Callers that need a clean working tree (for example Create Version)
+      // must retry after any edit that raced with this save.
+      return snapshotWasCurrent;
     } catch (error) {
       window.alert(String(error));
       return false;
@@ -575,10 +684,24 @@ function App() {
     const parsedSidecar = parseDocumentSidecar(storedFormat?.content);
     const assets = collectDocumentImageAssets(markdown, parsedSidecar.sidecar.assets);
     const formatSettings = parseDocumentFormatSettings(parsedSidecar.sidecar.format);
-    setTabs((currentTabs) => currentTabs.map((tab) => tab.id === activeDocument.id
-      ? { ...tab, content: markdown, initialContent: markdown, assetFolder: storedFormat?.assetFolder ?? assetFolder, document: parsedSidecar.sidecar.document, assets, formatSettings, isDirty: false }
-      : tab));
-    setVersionStatusRevision((revision) => revision + 1);
+    setTabs((currentTabs) => currentTabs.map((tab) => {
+      if (tab.id !== activeDocument.id) return tab;
+      const loadedRevision = Math.max(tab.editRevision, tab.savedRevision) + 1;
+      return {
+        ...tab,
+        content: markdown,
+        initialContent: markdown,
+        documentLoadRevision: tab.documentLoadRevision + 1,
+        assetFolder: storedFormat?.assetFolder ?? assetFolder,
+        document: parsedSidecar.sidecar.document,
+        assets,
+        formatSettings,
+        isDirty: false,
+        editRevision: loadedRevision,
+        savedRevision: loadedRevision,
+      };
+    }));
+    setWorkingTreeEpoch((epoch) => epoch + 1);
   }, [activeDocument.id, activeDocument.path]);
 
   const planVersionRestore = useCallback(async (targetCommitId: string, targetTitle: string) => {
@@ -629,6 +752,7 @@ function App() {
         safetyVersionMessage,
       });
       await reloadActiveDocumentFromDisk();
+      setHeadRevisionEpoch((epoch) => epoch + 1);
       setActiveVersionComparison(null);
       setRestoreDialog(null);
       window.alert(result.alreadyEquivalent ? text.versionAlreadyEquivalent : text.versionRestored);
@@ -684,6 +808,8 @@ function App() {
       setActiveFeatureId(null);
       setSidebarOpen(true);
     }
+    releaseRevisionDataForDocument(tab.path);
+    releaseHistoricalAssetsForDocument(tab.path);
     const remainingTabs = tabs.filter((item) => item.id !== tabId);
     if (remainingTabs.length === 0) {
       const freshDocument = createDocument();
@@ -703,6 +829,8 @@ function App() {
       setActiveFeatureId(null);
       setSidebarOpen(true);
     }
+    releaseRevisionDataForDocument(tab.path);
+    releaseHistoricalAssetsForDocument(tab.path);
     const remainingTabs = tabs.filter((item) => item.id !== tabId);
     if (remainingTabs.length === 0) {
       const freshDocument = createDocument();
@@ -1025,7 +1153,7 @@ function App() {
             ))}
           </aside>
           {ActiveFeatureWorkspace ? <aside className="feature-sidebar" aria-label={activeFeature?.label(text)}>
-            <ActiveFeatureWorkspace document={featureDocument} text={text} onSaveDocument={handleSave} showRevisionChanges={showRevisionChanges} onShowRevisionChangesChange={setShowRevisionChanges} onVersionStateChanged={() => setVersionStatusRevision((revision) => revision + 1)} onOpenVersionDiff={openVersionDiff} onOpenVersionHistoryComparison={openVersionHistoryComparison} />
+            <ActiveFeatureWorkspace document={featureDocument} text={text} onSaveDocument={handleSave} showRevisionChanges={showRevisionChanges} onShowRevisionChangesChange={setShowRevisionChanges} onVersionStateChanged={() => setHeadRevisionEpoch((epoch) => epoch + 1)} onOpenVersionDiff={openVersionDiff} onOpenVersionHistoryComparison={openVersionHistoryComparison} />
           </aside> : sidebarOpen && <aside className="document-sidebar" aria-label={text.documentList}>
             {documentHeadings.length > 0 && <>
               <div className="sidebar-heading sidebar-outline-heading"><span>{text.outline}</span></div>
@@ -1055,6 +1183,7 @@ function App() {
                 key={activeDocument.id}
                 documentId={activeDocument.id}
                 initialContent={activeDocument.initialContent}
+                documentLoadRevision={activeDocument.documentLoadRevision}
                 onContentChange={updateDocument}
                 documentPath={activeDocument.path}
                 assetFolder={activeDocument.assetFolder}
@@ -1069,7 +1198,7 @@ function App() {
                 firstLineIndent={effectiveDocumentDefaults.firstLineIndent}
                 showRevisionChanges={showRevisionChanges}
                 revisionLocations={revisionLocations}
-                revisionBaselineKey={`${activeDocument.path ?? ""}\u0000${activeDocument.assetFolder ?? ""}\u0000${versionStatusRevision}`}
+                revisionBaselineKey={`${activeDocument.path ?? ""}\u0000${activeDocument.assetFolder ?? ""}\u0000${headRevisionEpoch}`}
                 onOpenRevisionPreview={openRevisionPreviewAtLocation}
               />
           </section>

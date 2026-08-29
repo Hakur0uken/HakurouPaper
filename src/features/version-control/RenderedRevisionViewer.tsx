@@ -4,7 +4,7 @@ import { parseDocumentSidecar } from "../../core/schema";
 import { parseDocumentFormatSettings } from "../../formatTypes";
 import { fontFamilyStack } from "../../appearanceSettings";
 import type { UiText } from "../../i18n";
-import { platform, type RevisionAssetManifest, type RevisionDescriptor, type RevisionTextSnapshot, type VersionComparison } from "../../platform";
+import { platform, type RevisionAssetManifest, type RevisionDescriptor, type RevisionTextSnapshot, type VersionChange, type VersionComparison } from "../../platform";
 import type { FeatureDocumentContext } from "../registry";
 import { RevisionOverviewRuler } from "./RevisionOverviewRuler";
 import { getCachedRevisionTextSnapshot, getRevisionComparisonData } from "./revisionDataCache";
@@ -29,7 +29,105 @@ type RevisionAssetContext = {
 };
 
 const formulaHtmlCache = new Map<string, string | null>();
-const historicalAssetRequests = new Map<string, Promise<string | null>>();
+const maximumFormulaCacheEntries = 128;
+const historicalAssetRequests = new Map<string, Promise<HistoricalAssetResult | null>>();
+const historicalAssetCache = new Map<string, HistoricalAssetCacheEntry>();
+const releasedHistoricalAssetDocuments = new Set<string>();
+const maximumHistoricalAssetEntries = 24;
+const maximumHistoricalAssetBytes = 64 * 1024 * 1024;
+
+type HistoricalAssetCacheEntry = {
+  documentPath: string;
+  url: string;
+  size: number;
+  lastUsed: number;
+  consumers: number;
+};
+
+type HistoricalAssetResult = { key: string; url: string };
+
+function touchFormulaCache(key: string, value: string | null) {
+  formulaHtmlCache.delete(key);
+  formulaHtmlCache.set(key, value);
+  while (formulaHtmlCache.size > maximumFormulaCacheEntries) {
+    const oldestKey = formulaHtmlCache.keys().next().value as string | undefined;
+    if (!oldestKey) return;
+    formulaHtmlCache.delete(oldestKey);
+  }
+}
+
+function historicalAssetCacheBytes() {
+  let bytes = 0;
+  historicalAssetCache.forEach((entry) => { bytes += entry.size; });
+  return bytes;
+}
+
+function hasHistoricalAssetForDocument(documentPath: string) {
+  for (const entry of historicalAssetCache.values()) {
+    if (entry.documentPath === documentPath) return true;
+  }
+  for (const key of historicalAssetRequests.keys()) {
+    if (key.startsWith(`${documentPath}\u0000`)) return true;
+  }
+  return false;
+}
+
+function forgetReleasedDocumentWhenDrained(documentPath: string) {
+  if (!hasHistoricalAssetForDocument(documentPath)) releasedHistoricalAssetDocuments.delete(documentPath);
+}
+
+function evictHistoricalAssets(protectedKey?: string) {
+  while (historicalAssetCache.size > maximumHistoricalAssetEntries || historicalAssetCacheBytes() > maximumHistoricalAssetBytes) {
+    let oldestKey: string | undefined;
+    let oldestUsed = Number.POSITIVE_INFINITY;
+    historicalAssetCache.forEach((entry, key) => {
+      if (key !== protectedKey && entry.consumers === 0 && entry.lastUsed < oldestUsed) {
+        oldestKey = key;
+        oldestUsed = entry.lastUsed;
+      }
+    });
+    // Every remaining URL is rendered somewhere; defer eviction until it is
+    // released so an <img> never loses its Blob URL underneath React.
+    if (!oldestKey) return;
+    const entry = historicalAssetCache.get(oldestKey);
+    if (entry) URL.revokeObjectURL(entry.url);
+    historicalAssetCache.delete(oldestKey);
+  }
+}
+
+function retainHistoricalAsset(key: string) {
+  const entry = historicalAssetCache.get(key);
+  if (!entry) return;
+  entry.consumers += 1;
+  entry.lastUsed = Date.now();
+}
+
+function releaseHistoricalAsset(key: string) {
+  const entry = historicalAssetCache.get(key);
+  if (!entry) return;
+  entry.consumers = Math.max(0, entry.consumers - 1);
+  entry.lastUsed = Date.now();
+  if (entry.consumers === 0 && releasedHistoricalAssetDocuments.has(entry.documentPath)) {
+    URL.revokeObjectURL(entry.url);
+    historicalAssetCache.delete(key);
+    forgetReleasedDocumentWhenDrained(entry.documentPath);
+    return;
+  }
+  evictHistoricalAssets();
+}
+
+/** Revoke unused historical Blob URLs when the associated tab is closed. */
+export function releaseHistoricalAssetsForDocument(documentPath: string | null) {
+  if (!documentPath) return;
+  releasedHistoricalAssetDocuments.add(documentPath);
+  historicalAssetCache.forEach((entry, key) => {
+    if (entry.documentPath === documentPath && entry.consumers === 0) {
+      URL.revokeObjectURL(entry.url);
+      historicalAssetCache.delete(key);
+    }
+  });
+  forgetReleasedDocumentWhenDrained(documentPath);
+}
 
 function markdownChildren(node: MarkdownNode | undefined) {
   return node?.children ?? [];
@@ -66,18 +164,26 @@ function assetMime(path: string, declared?: string) {
   return "image/png";
 }
 
-function currentAssetManifest(document: FeatureDocumentContext): RevisionAssetManifest[] {
+function currentAssetManifest(document: FeatureDocumentContext, changes: VersionChange[] = []): RevisionAssetManifest[] {
   const assets = new Map<string, RevisionAssetManifest>();
+  const workingImageChanged = (path: string) => {
+    const assetPath = normalizedAssetPath(path).slice(2);
+    return changes.some((change) => change.resourceKind === "image" && change.kind !== "deleted" && change.path.replace(/\\/g, "/").endsWith(assetPath));
+  };
   document.assets.forEach((asset) => {
     [asset.source, asset.preview].filter((resource): resource is NonNullable<typeof resource> => Boolean(resource)).forEach((resource) => {
-      assets.set(resource.path, { path: resource.path, mimeType: assetMime(resource.path, resource.mimeType) });
+      assets.set(resource.path, {
+        path: resource.path,
+        mimeType: assetMime(resource.path, resource.mimeType),
+        ...(workingImageChanged(resource.path) ? { contentIdentity: `working-tree-change:${normalizedAssetPath(resource.path)}` } : {}),
+      });
     });
   });
   return [...assets.values()];
 }
 
-function currentTextSnapshot(document: FeatureDocumentContext, revision: RevisionDescriptor): RevisionTextSnapshot {
-  return { revision, markdown: document.content, metadata: document.sidecarContent, assets: currentAssetManifest(document) };
+function currentTextSnapshot(document: FeatureDocumentContext, revision: RevisionDescriptor, changes: VersionChange[]): RevisionTextSnapshot {
+  return { revision, markdown: document.content, metadata: document.sidecarContent, assets: currentAssetManifest(document, changes) };
 }
 
 function createAssetContext(snapshot: RevisionTextSnapshot, documentPath: string, assetFolder: string | null, workingDocumentPath?: string | null): RevisionAssetContext {
@@ -100,19 +206,44 @@ function preferredImagePath(context: RevisionAssetContext, path: string | undefi
 
 function blobUrlFromBase64(dataBase64: string, mimeType: string) {
   const bytes = Uint8Array.from(window.atob(dataBase64), (value) => value.charCodeAt(0));
-  return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+  return { url: URL.createObjectURL(new Blob([bytes], { type: mimeType })), size: bytes.byteLength };
 }
 
 function historicalImageUrl(context: RevisionAssetContext, path: string) {
   const revisionId = context.snapshot.revision.id;
   if (!revisionId) return Promise.resolve(null);
+  releasedHistoricalAssetDocuments.delete(context.documentPath);
   const key = `${context.documentPath}\u0000${revisionId}\u0000${path}`;
+  const cachedAsset = historicalAssetCache.get(key);
+  if (cachedAsset) {
+    cachedAsset.lastUsed = Date.now();
+    return Promise.resolve({ key, url: cachedAsset.url });
+  }
   const cached = historicalAssetRequests.get(key);
   if (cached) return cached;
   const request = platform.versionControl.getRevisionAsset({ documentPath: context.documentPath, assetFolder: context.assetFolder, revisionId, assetPath: path })
-    .then((asset) => asset ? blobUrlFromBase64(asset.dataBase64, asset.mimeType) : null);
+    .then((asset) => {
+      if (!asset) return null;
+      const blob = blobUrlFromBase64(asset.dataBase64, asset.mimeType);
+      if (releasedHistoricalAssetDocuments.has(context.documentPath)) {
+        URL.revokeObjectURL(blob.url);
+        return null;
+      }
+      historicalAssetCache.set(key, {
+        documentPath: context.documentPath,
+        url: blob.url,
+        size: blob.size,
+        lastUsed: Date.now(),
+        consumers: 0,
+      });
+      evictHistoricalAssets(key);
+      return { key, url: blob.url };
+    })
+    .finally(() => {
+      historicalAssetRequests.delete(key);
+      forgetReleasedDocumentWhenDrained(context.documentPath);
+    });
   historicalAssetRequests.set(key, request);
-  void request.catch(() => historicalAssetRequests.delete(key));
   return request;
 }
 
@@ -141,13 +272,17 @@ function formulaPreviewValue(value: string) {
 function formulaHtml(value: string, display: boolean) {
   const source = formulaPreviewValue(value) || "\\text{公式为空}";
   const key = `${display ? "display" : "inline"}\u0000${source}`;
-  if (formulaHtmlCache.has(key)) return formulaHtmlCache.get(key)!;
+  if (formulaHtmlCache.has(key)) {
+    const cached = formulaHtmlCache.get(key)!;
+    touchFormulaCache(key, cached);
+    return cached;
+  }
   try {
     const html = katex.renderToString(source, { displayMode: display, throwOnError: true, strict: "ignore" });
-    formulaHtmlCache.set(key, html);
+    touchFormulaCache(key, html);
     return html;
   } catch {
-    formulaHtmlCache.set(key, null);
+    touchFormulaCache(key, null);
     return null;
   }
 }
@@ -172,8 +307,19 @@ const RevisionImage = memo(function RevisionImage({ node, context }: { node: Mar
     setSource(null);
     if (!visible || !path) return;
     let cancelled = false;
-    void historicalImageUrl(context, path).then((nextSource) => { if (!cancelled) setSource(nextSource); }).catch(() => { if (!cancelled) setFailed(true); });
-    return () => { cancelled = true; };
+    let retainedKey: string | null = null;
+    void historicalImageUrl(context, path).then((asset) => {
+      if (cancelled) return;
+      if (asset) {
+        retainHistoricalAsset(asset.key);
+        retainedKey = asset.key;
+        setSource(asset.url);
+      }
+    }).catch(() => { if (!cancelled) setFailed(true); });
+    return () => {
+      cancelled = true;
+      if (retainedKey) releaseHistoricalAsset(retainedKey);
+    };
   }, [context, directSource, path, visible]);
   return <span ref={ref} className="revision-image-shell">
     {!visible && <span className="revision-image-placeholder">图片将在滚动到附近时加载</span>}
@@ -260,6 +406,7 @@ export function RenderedRevisionViewer({ document, versionId, initialLocation, t
   const loadRequestRef = useRef(0);
   const workerRequestRef = useRef(0);
   const workerRef = useRef<Worker | null>(null);
+  const workingChangesRef = useRef<{ key: string; request: Promise<VersionChange[]> } | null>(null);
   const [workerUnavailable, setWorkerUnavailable] = useState(false);
 
   useEffect(() => {
@@ -293,7 +440,21 @@ export function RenderedRevisionViewer({ document, versionId, initialLocation, t
     void (async () => {
       try {
         const { comparison, before } = await getRevisionComparisonData(document, versionId);
-        const after = comparison.targetRevision.kind === "currentDocument" ? currentTextSnapshot(document, comparison.targetRevision) : await getCachedRevisionTextSnapshot(document, comparison.targetRevision.id ?? null);
+        let currentChanges = comparison.changes;
+        if (comparison.targetRevision.kind === "currentDocument") {
+          const workingChangesKey = `${document.path}\u0000${document.assetFolder ?? ""}\u0000${document.workingTreeEpoch}`;
+          if (workingChangesRef.current?.key === workingChangesKey) {
+            currentChanges = await workingChangesRef.current.request;
+          } else {
+            // This refreshes working-tree status after a save without touching
+            // the immutable HEAD snapshot. Re-renders caused by typing reuse
+            // the epoch-keyed result and never call Git.
+            const request = platform.versionControl.getChanges({ documentPath: document.path!, assetFolder: document.assetFolder });
+            workingChangesRef.current = { key: workingChangesKey, request };
+            currentChanges = await request;
+          }
+        }
+        const after = comparison.targetRevision.kind === "currentDocument" ? currentTextSnapshot(document, comparison.targetRevision, currentChanges) : await getCachedRevisionTextSnapshot(document, comparison.targetRevision.id ?? null);
         if (requestId === loadRequestRef.current) setViewerState({ kind: "ready", comparison, before, after });
       } catch (error) { if (requestId === loadRequestRef.current) setViewerState({ kind: "error", message: String(error) }); }
     })();

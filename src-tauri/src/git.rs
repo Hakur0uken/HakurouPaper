@@ -1627,13 +1627,38 @@ fn target_version_for_context(
     target_id: &str,
 ) -> Result<VersionRecord, String> {
     let target = version_record_for_id(&context.root, target_id)?;
-    if !history_for_context(context, 30)?
-        .iter()
-        .any(|version| version.id == target.id)
-    {
+    if !version_belongs_to_document_history(context, &target.id)? {
         return Err("该版本不属于当前文稿的版本历史，无法恢复。".into());
     }
     Ok(target)
+}
+
+/// Validate restore targets against the full document-scoped history.  The
+/// sidebar remains intentionally paged to 30 entries, but a valid older
+/// revision must never be rejected merely because it is off that first page.
+fn version_belongs_to_document_history(
+    context: &RepositoryContext,
+    target_id: &str,
+) -> Result<bool, String> {
+    if !has_commits(&context.root)? {
+        return Ok(false);
+    }
+    let mut arguments = vec![
+        "log".to_string(),
+        "--full-history".to_string(),
+        "--format=%H".to_string(),
+        "HEAD".to_string(),
+        "--".to_string(),
+    ];
+    arguments.extend(scope_pathspecs(&context.scope));
+    let output = git_output_in_owned(&context.root, &arguments)?;
+    if !output.status.success() {
+        return Err(format!("无法验证版本归属：{}", output_message(&output)));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .any(|version_id| version_id == target_id))
 }
 
 fn target_scope_files(
@@ -2748,6 +2773,66 @@ mod tests {
                 .len(),
             1
         );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn restore_validation_accepts_document_versions_older_than_sidebar_page() {
+        if !inspect_git().available {
+            return;
+        }
+        let root = test_directory("history beyond sidebar page");
+        let document = root.join("paper.md");
+        std::fs::write(&document, "# Revision 0\n").expect("initial document should be written");
+        assert!(git_output_in(&root, &["init"])
+            .expect("git init should run")
+            .status
+            .success());
+        assert!(git_output_in(&root, &["config", "user.name", "Hakurou Test"])
+            .expect("name should be configured")
+            .status
+            .success());
+        assert!(git_output_in(&root, &["config", "user.email", "hakurou@example.invalid"])
+            .expect("email should be configured")
+            .status
+            .success());
+        assert!(git_output_in(&root, &["add", "paper.md"])
+            .expect("initial document should stage")
+            .status
+            .success());
+        assert!(git_output_in(&root, &["commit", "-m", "Revision 0"])
+            .expect("initial document should commit")
+            .status
+            .success());
+        let oldest = version_record_for_id(&root, "HEAD").expect("initial version should resolve");
+
+        for revision in 1..=31 {
+            std::fs::write(&document, format!("# Revision {revision}\n"))
+                .expect("next document revision should be written");
+            assert!(git_output_in(&root, &["add", "paper.md"])
+                .expect("next document revision should stage")
+                .status
+                .success());
+            assert!(git_output_in(&root, &["commit", "-m", &format!("Revision {revision}")])
+                .expect("next document revision should commit")
+                .status
+                .success());
+        }
+
+        let context = repository_context(
+            &document.canonicalize().expect("document should resolve"),
+            None,
+        )
+        .expect("repository context should resolve");
+        assert_eq!(
+            history_for_context(&context, 30)
+                .expect("sidebar history should be readable")
+                .len(),
+            30
+        );
+        let resolved = target_version_for_context(&context, &oldest.id)
+            .expect("an older document-scoped version should be accepted");
+        assert_eq!(resolved.id, oldest.id);
         let _ = std::fs::remove_dir_all(root);
     }
 

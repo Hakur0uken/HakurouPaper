@@ -6,6 +6,8 @@ export { VersionDiffViewer } from "./VersionDiffViewer";
 export { RenderedRevisionViewer } from "./RenderedRevisionViewer";
 export { RevisionOverviewRuler } from "./RevisionOverviewRuler";
 export { useCurrentRevisionLocations } from "./revisionLocationState";
+export { releaseRevisionDataForDocument } from "./revisionDataCache";
+export { releaseHistoricalAssetsForDocument } from "./RenderedRevisionViewer";
 export type { RevisionLocation } from "./revisionTypes";
 
 export const versionControlSidebarContribution: SidebarContribution = {

@@ -41,26 +41,6 @@ function ScopeList({ scope, assetFolder, text }: { scope: VersionDocumentScope; 
   </ul>;
 }
 
-function changeLabel(change: VersionChange, text: UiText) {
-  switch (change.kind) {
-    case "added":
-    case "untracked": return text.versionChangeAdded;
-    case "deleted": return text.versionChangeDeleted;
-    case "renamed": return text.versionChangeRenamed;
-    default: return text.versionChangeModified;
-  }
-}
-
-function changeSymbol(change: VersionChange) {
-  switch (change.kind) {
-    case "added":
-    case "untracked": return "＋";
-    case "deleted": return "－";
-    case "renamed": return "↔";
-    default: return "●";
-  }
-}
-
 export function VersionControlWorkspace({ document, text, onSaveDocument, showRevisionChanges, onShowRevisionChangesChange, onVersionStateChanged, onOpenVersionDiff, onOpenVersionHistoryComparison }: FeatureWorkspaceProps) {
   const [state, setState] = useState<VersionControlState>(() => document.path ? { kind: "checking" } : { kind: "unsaved" });
   const [changesState, setChangesState] = useState<ChangesState>({ kind: "idle" });
@@ -127,7 +107,7 @@ export function VersionControlWorkspace({ document, text, onSaveDocument, showRe
     } catch (error) {
       if (requestId === requestIdRef.current) setState({ kind: "error", message: String(error) });
     }
-  }, [document.assetFolder, document.path, document.versionStatusRevision, text.versionGitUnavailable]);
+  }, [document.assetFolder, document.headRevisionEpoch, document.path, document.workingTreeEpoch, text.versionGitUnavailable]);
 
   useEffect(() => {
     void inspect();
@@ -204,9 +184,11 @@ export function VersionControlWorkspace({ document, text, onSaveDocument, showRe
     }
   }, [document.assetFolder, document.path, inspect, isCreatingVersion, onSaveDocument, onVersionStateChanged, text.versionCreated, text.versionMessageRequired, versionMessage]);
 
-  const documentChanges = changesState.kind === "ready"
-    ? changesState.changes.filter((change) => change.isDocument)
-    : [];
+  // Git returns only the current manuscript scope (Markdown, its asset folder,
+  // and hakurou.json). Present that as one logical manuscript change instead
+  // of hiding non-Markdown resource changes behind `isDocument`.
+  const manuscriptChanges = changesState.kind === "ready" ? changesState.changes : [];
+  const manuscriptChange = manuscriptChanges.find((change) => change.isDocument) ?? manuscriptChanges[0];
   const hasIdentity = Boolean(identity.name && identity.email);
   const canCreateVersion = hasIdentity && changesState.kind === "ready" && changesState.changes.length > 0 && versionMessage.trim().length > 0 && !isCreatingVersion;
 
@@ -263,22 +245,22 @@ export function VersionControlWorkspace({ document, text, onSaveDocument, showRe
       <section className="version-control-card version-change-card">
         <div className="version-change-card-heading">
           <h2>{text.versionCurrentChanges}</h2>
-          {changesState.kind === "ready" && <span>{documentChanges.length}</span>}
+          {changesState.kind === "ready" && <span>{manuscriptChanges.length > 0 ? 1 : 0}</span>}
         </div>
         <label className="version-change-visibility"><input type="checkbox" checked={showRevisionChanges} onChange={(event) => onShowRevisionChangesChange(event.target.checked)} /> {text.versionShowRevisionChanges}</label>
         {document.isDirty && <p className="version-unsaved-content-notice">{text.versionUnsavedContentNotice}</p>}
         {changesState.kind === "loading" && <p className="version-change-loading">{text.versionDiffLoading}</p>}
         {changesState.kind === "error" && <p className="version-change-error">{changesState.message}</p>}
-        {changesState.kind === "ready" && (documentChanges.length === 0
-          ? <p className="version-no-changes">{changesState.changes.length === 0 ? text.versionNoChanges : text.versionNoDocumentChanges}</p>
+        {changesState.kind === "ready" && (manuscriptChanges.length === 0
+          ? <p className="version-no-changes">{text.versionNoChanges}</p>
           : <div className="version-change-list">
-            {documentChanges.map((change) => <button type="button" key={`${change.oldPath ?? ""}-${change.path}`} className={`version-change-item is-${change.kind}`} onClick={() => onOpenVersionDiff(change)}>
-              <span className="version-change-symbol" aria-hidden="true">{changeSymbol(change)}</span>
+            {manuscriptChange && <button type="button" className="version-change-item is-modified" onClick={() => onOpenVersionDiff(manuscriptChange)}>
+              <span className="version-change-symbol" aria-hidden="true">●</span>
               <span className="version-change-copy">
-                <strong>{change.kind === "renamed" && change.oldPath ? <>{filename(change.oldPath)} <i>→</i> {filename(change.path)}</> : filename(change.path)}</strong>
-                <small>{changeLabel(change, text)}</small>
+                <strong>{filename(document.path ?? manuscriptChange.path)}</strong>
+                <small>{text.versionManuscriptChanged}</small>
               </span>
-            </button>)}
+            </button>}
           </div>)}
       </section>
 

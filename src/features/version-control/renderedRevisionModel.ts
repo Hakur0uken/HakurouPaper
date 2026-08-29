@@ -84,8 +84,21 @@ function imageUrlForBlock(node: MarkdownNode) {
   return markdownChildren(node).find((child) => child.type === "image")?.url;
 }
 
-function snapshotAssetSignatures(snapshot: RevisionTextSnapshot) {
-  return new Map(snapshot.assets.map((asset) => [asset.path, asset.contentHash ?? `${asset.mimeType}:${asset.path}`]));
+function snapshotAssetSignatures(snapshot: RevisionTextSnapshot, counterpart: RevisionTextSnapshot) {
+  const counterpartByPath = new Map(counterpart.assets.map((asset) => [asset.path, asset]));
+  return new Map(snapshot.assets.map((asset) => {
+    const counterpartAsset = counterpartByPath.get(asset.path);
+    // A Git object id is useful only when both sides have one. The in-memory
+    // current manifest deliberately avoids reading all image bytes, so a
+    // historical hash on just one side must not turn an unchanged path into a
+    // false binary modification.
+    const identity = asset.contentHash ?? asset.contentIdentity;
+    const counterpartIdentity = counterpartAsset?.contentHash ?? counterpartAsset?.contentIdentity;
+    const signature = identity && counterpartIdentity
+      ? identity
+      : asset.path;
+    return [asset.path, signature];
+  }));
 }
 
 function normalizedSignature(node: MarkdownNode, assetSignatures: ReadonlyMap<string, string>) {
@@ -250,8 +263,8 @@ function alignInterval(before: IndexedMarkdownBlock[], after: IndexedMarkdownBlo
 export function buildRenderedRevisionModel(before: RevisionTextSnapshot, after: RevisionTextSnapshot): RenderedRevisionModel {
   const beforeBlocks = parseMarkdownBlocks(before.markdown);
   const afterBlocks = parseMarkdownBlocks(after.markdown);
-  const beforeAssetSignatures = snapshotAssetSignatures(before);
-  const afterAssetSignatures = snapshotAssetSignatures(after);
+  const beforeAssetSignatures = snapshotAssetSignatures(before, after);
+  const afterAssetSignatures = snapshotAssetSignatures(after, before);
   // Signatures and image object ids are prepared once before LCS enters its matrix loop.
   const beforeSignatures = beforeBlocks.map((block) => normalizedSignature(block, beforeAssetSignatures));
   const afterSignatures = afterBlocks.map((block) => normalizedSignature(block, afterAssetSignatures));

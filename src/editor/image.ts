@@ -8,6 +8,13 @@ import type { AssetService } from "../platform";
 export type ImageAssetPluginOptions = {
   documentPath: string | null;
   assetFolder: string | null;
+  /**
+   * The editor itself can remain mounted while a new save assigns a path.
+   * Resolve these at interaction time so that save state does not require
+   * rebuilding Milkdown and its node views.
+   */
+  getDocumentPath?: () => string | null;
+  getAssetFolder?: () => string | null;
   assets: AssetService;
   findAsset: (displayPath: string) => AssetV1 | undefined;
   onAssetImported: (asset: AssetV1, assetFolder: string) => void;
@@ -17,7 +24,7 @@ export type ImageAssetPluginOptions = {
 
 type ResizeCorner = "northwest" | "northeast" | "southwest" | "southeast";
 
-type ImageNodeViewOptions = Pick<ImageAssetPluginOptions, "assets" | "documentPath" | "findAsset" | "onAssetResize">;
+type ImageNodeViewOptions = Pick<ImageAssetPluginOptions, "assets" | "documentPath" | "getDocumentPath" | "findAsset" | "onAssetResize">;
 
 class ImageNodeView {
   dom: HTMLElement;
@@ -75,7 +82,7 @@ class ImageNodeView {
   private updateImage(node: ProseNode) {
     const source = String(node.attrs.src ?? "");
     const asset = this.options.findAsset(source);
-    this.image.src = this.options.assets.displaySource(source, this.options.documentPath);
+    this.image.src = this.options.assets.displaySource(source, this.options.getDocumentPath?.() ?? this.options.documentPath);
     this.image.alt = String(node.attrs.alt ?? "");
     this.image.title = String(node.attrs.title ?? node.attrs.alt ?? "");
     if (asset?.display?.width) {
@@ -150,10 +157,11 @@ const imageCursorNavigation = $prose(() => new Plugin({
   },
 }));
 
-export function createImageAssetPlugins({ documentPath, assetFolder, assets, findAsset, onAssetImported, onAssetResize, onImportError }: ImageAssetPluginOptions) {
+export function createImageAssetPlugins({ documentPath, assetFolder, getDocumentPath, getAssetFolder, assets, findAsset, onAssetImported, onAssetResize, onImportError }: ImageAssetPluginOptions) {
   const localImageView = $view(imageSchema.node, () => (node) => new ImageNodeView(node, {
     assets,
     documentPath,
+    getDocumentPath,
     findAsset,
     onAssetResize,
   }));
@@ -164,13 +172,14 @@ export function createImageAssetPlugins({ documentPath, assetFolder, assets, fin
         const image = Array.from(event.clipboardData?.files ?? []).find((file) => file.type.startsWith("image/"));
         if (!image) return false;
         event.preventDefault();
-        if (!documentPath) {
+        const currentDocumentPath = getDocumentPath?.() ?? documentPath;
+        if (!currentDocumentPath) {
           onImportError("请先保存文稿，再粘贴图片。保存后图片会自动放入同级 assets 文件夹。");
           return true;
         }
         void (async () => {
           try {
-            const imported = await assets.importClipboardAsset({ documentPath, assetFolder, file: image });
+            const imported = await assets.importClipboardAsset({ documentPath: currentDocumentPath, assetFolder: getAssetFolder?.() ?? assetFolder, file: image });
             onAssetImported(imported.asset, imported.assetFolder);
             const imageNode = imageSchema.type(ctx).create({ src: imported.displayPath, alt: "", title: "" });
             view.dispatch(view.state.tr.replaceSelectionWith(imageNode));

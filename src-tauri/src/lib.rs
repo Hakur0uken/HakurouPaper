@@ -1,7 +1,8 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::Serialize;
 use std::{
-    io::BufWriter,
+    fs::OpenOptions,
+    io::{self, BufWriter, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -13,6 +14,7 @@ mod mathtype;
 mod pandoc;
 
 static IMAGE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+static ATOMIC_WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -57,6 +59,45 @@ fn allow_asset_directory(app: &tauri::AppHandle, document_dir: &Path) -> Result<
         .map_err(|error| format!("无法授权读取文稿资源目录：{error}"))
 }
 
+/// Replace one document file through a same-directory temporary file.  The
+/// completed file is flushed before rename, so an interrupted save cannot
+/// leave a partially written Markdown file or hakurou.json at the target.
+fn atomic_write(path: &Path, content: &[u8]) -> io::Result<()> {
+    let directory = path
+        .parent()
+        .filter(|directory| !directory.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "target path has no file name"))?;
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(io::Error::other)?
+        .as_nanos();
+    let sequence = ATOMIC_WRITE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let temporary_path = (0..128)
+        .map(|attempt| directory.join(format!(".{filename}.{nonce}.{sequence}.{attempt}.tmp")))
+        .find(|candidate| !candidate.exists())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::AlreadyExists, "could not allocate a temporary save file"))?;
+
+    let result = (|| -> io::Result<()> {
+        let mut temporary = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary_path)?;
+        temporary.write_all(content)?;
+        temporary.sync_all()?;
+        drop(temporary);
+        std::fs::rename(&temporary_path, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary_path);
+    }
+    result
+}
+
 #[tauri::command]
 fn read_markdown(app: tauri::AppHandle, path: String) -> Result<String, String> {
     let path = Path::new(&path);
@@ -76,7 +117,7 @@ fn write_markdown(path: String, content: String) -> Result<(), String> {
         return Err("请使用 .md、.markdown 或 .mdx 文件扩展名。".into());
     }
 
-    std::fs::write(path, content).map_err(|error| format!("无法保存文稿：{error}"))
+    atomic_write(path, content.as_bytes()).map_err(|error| format!("无法保存文稿：{error}"))
 }
 
 #[tauri::command]
@@ -303,7 +344,7 @@ fn write_document_format(
     std::fs::create_dir_all(&asset_dir)
         .map_err(|error| format!("无法创建文稿资源目录：{error}"))?;
     allow_asset_directory(&app, document_dir)?;
-    std::fs::write(asset_dir.join("hakurou.json"), &content)
+    atomic_write(&asset_dir.join("hakurou.json"), content.as_bytes())
         .map_err(|error| format!("无法保存文稿格式设置：{error}"))?;
     Ok(StoredDocumentFormat {
         asset_folder: folder,
@@ -588,6 +629,32 @@ fn save_clipboard_emf_preview(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn atomic_write_replaces_a_complete_existing_document() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after the Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "hakurou-atomic-write-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).expect("temporary directory should be created");
+        let document = root.join("paper.md");
+        std::fs::write(&document, "old draft").expect("initial draft should be written");
+
+        atomic_write(&document, b"complete replacement").expect("atomic replacement should succeed");
+
+        assert_eq!(
+            std::fs::read_to_string(&document).expect("replacement should be readable"),
+            "complete replacement"
+        );
+        assert!(std::fs::read_dir(&root)
+            .expect("temporary directory should be readable")
+            .all(|entry| !entry.expect("directory entry should be readable").file_name().to_string_lossy().ends_with(".tmp")));
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[test]
     fn share_package_copies_document_assets_and_uses_a_unique_folder() {
