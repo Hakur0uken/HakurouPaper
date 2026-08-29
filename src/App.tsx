@@ -577,9 +577,12 @@ function App() {
     const filename = filenameFromPath(path);
     const document = createDocument(markdown, path, filename.replace(/\.(md|markdown|mdx)$/i, ""), { formatSettings, assetFolder, document: documentSchema, assets });
     if (tabs.length === 1 && isPristineWelcomeDocument(tabs[0]!)) {
-      const welcomeDocument = tabs[0]!;
-      setTabs([{ ...document, id: welcomeDocument.id }]);
-      setActiveTabId(welcomeDocument.id);
+      // Do not reuse the welcome tab's identity here. The editor deliberately
+      // preserves its live ProseMirror state across routine prop changes, so a
+      // reused ID would leave the welcome document rendered after opening a
+      // real file.
+      setTabs([document]);
+      setActiveTabId(document.id);
       return;
     }
     setTabs((currentTabs) => [...currentTabs, document]);
