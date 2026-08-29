@@ -30,9 +30,7 @@ docs/*.md
 # Keep this anchored: the application source lives in src/features/pandoc/.
 /pandoc/
 
-# One-off MathType/Pandoc investigations can contain Office documents,
-# extracted COM wrappers and vendored toolchains.  Their reproducible source
-# lives under research/, while generated evidence stays local.
+# One-off MathType/Pandoc investigations are local-only experiments.
+research/
 .tmp-*
-research/**/raw-artifacts/
 **/__pycache__/
