@@ -10,7 +10,7 @@ HakurouPaper 是一款面向长文档、论文和日常写作的本地优先 Mar
 
 ### 下载与安装
 
-前往 [Releases](https://github.com/Hakur0uken/HakurouPaper/releases) 下载最新的 Windows 安装包。当前版本可下载 `HakurouPaper_0.5.0_x64-setup.exe`，双击安装后即可使用。
+前往 [Releases](https://github.com/Hakur0uken/HakurouPaper/releases) 下载最新的 Windows 安装包。当前版本可下载 `HakurouPaper_0.6.0_x64-setup.exe`，双击安装后即可使用。
 
 ### 你可以用它做什么
 
@@ -46,7 +46,7 @@ HakurouPaper is a local-first Markdown editor for long-form writing, academic wo
 
 ### Download and install
 
-Visit [Releases](https://github.com/Hakur0uken/HakurouPaper/releases) to download the latest Windows installer. For the current release, download `HakurouPaper_0.5.0_x64-setup.exe` and run it to install the app.
+Visit [Releases](https://github.com/Hakur0uken/HakurouPaper/releases) to download the latest Windows installer. For the current release, download `HakurouPaper_0.6.0_x64-setup.exe` and run it to install the app.
 
 ### What you can do
 
