@@ -62,7 +62,8 @@ type WritingEditorProps = {
   firstLineIndent: boolean;
   showRevisionChanges: boolean;
   revisionLocations: RevisionLocation[];
-  onOpenRevisionPreview: (locationId: string) => void;
+  revisionBaselineKey: string;
+  onOpenRevisionPreview: (location: RevisionLocation) => void;
 };
 
 type DocumentHeading = {
@@ -72,7 +73,7 @@ type DocumentHeading = {
 };
 
 type PendingClose = { kind: "tab"; tabId: string } | { kind: "app" } | null;
-type ActiveVersionComparison = { initialPath: string | null; versionId: string | null; presentation: "rendered" | "source"; focusLocationId?: string | null };
+type ActiveVersionComparison = { initialPath: string | null; versionId: string | null; presentation: "rendered" | "source"; focusLocation?: RevisionLocation | null };
 type RestoreDialog =
   | { kind: "unsaved"; targetCommitId: string; targetTitle: string }
   | { kind: "confirm"; targetCommitId: string; targetTitle: string }
@@ -148,7 +149,7 @@ function countWords(markdown: string) {
   return cjkCharacters + latinWords;
 }
 
-function WritingEditor({ documentId, initialContent, onContentChange, documentPath, assetFolder, assets, onAssetImported, onAssetResize, formatSettings, onFormatChange, onSelectionChange, text, tableStyle, firstLineIndent, showRevisionChanges, revisionLocations, onOpenRevisionPreview }: WritingEditorProps) {
+function WritingEditor({ documentId, initialContent, onContentChange, documentPath, assetFolder, assets, onAssetImported, onAssetResize, formatSettings, onFormatChange, onSelectionChange, text, tableStyle, firstLineIndent, showRevisionChanges, revisionLocations, revisionBaselineKey, onOpenRevisionPreview }: WritingEditorProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [editorView, setEditorView] = useState<import("@milkdown/prose/view").EditorView | null>(null);
   const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(null);
@@ -156,9 +157,11 @@ function WritingEditor({ documentId, initialContent, onContentChange, documentPa
   const currentFormatSettingsRef = useRef(formatSettings);
   const currentAssetsRef = useRef(assets);
   const openRevisionPreviewRef = useRef(onOpenRevisionPreview);
+  const revisionLocationsRef = useRef(revisionLocations);
   currentFormatSettingsRef.current = formatSettings;
   currentAssetsRef.current = assets;
   openRevisionPreviewRef.current = onOpenRevisionPreview;
+  revisionLocationsRef.current = revisionLocations;
 
   useEffect(() => {
     setScrollContainer(mountRef.current?.closest<HTMLElement>(".editor-stage") ?? null);
@@ -218,7 +221,10 @@ function WritingEditor({ documentId, initialContent, onContentChange, documentPa
       ))
       .use(createTableDecorationPlugin(currentFormatSettingsRef.current, tableStyle))
       .use(createTextLayoutPlugin(currentFormatSettingsRef.current, firstLineIndent))
-      .use(createRevisionDecorationPlugin((locationId) => openRevisionPreviewRef.current(locationId)))
+      .use(createRevisionDecorationPlugin((locationId) => {
+        const location = revisionLocationsRef.current.find((candidate) => candidate.id === locationId);
+        if (location) openRevisionPreviewRef.current(location);
+      }))
       .use(editorControlsBridge);
     void editor.create().catch(console.error);
     return () => {
@@ -241,13 +247,15 @@ function WritingEditor({ documentId, initialContent, onContentChange, documentPa
 
   useEffect(() => {
     if (!editorView) return;
-    editorView.dispatch(editorView.state.tr.setMeta(revisionDecorationPluginKey, setRevisionDecorations(showRevisionChanges, revisionLocations)));
-  }, [editorView, revisionLocations, showRevisionChanges]);
+    editorView.dispatch(editorView.state.tr
+      .setMeta("addToHistory", false)
+      .setMeta(revisionDecorationPluginKey, setRevisionDecorations(showRevisionChanges, revisionLocations, revisionBaselineKey)));
+  }, [editorView, revisionBaselineKey, revisionLocations, showRevisionChanges]);
 
-  const navigateRevisionLocation = (location: RevisionLocation) => {
-    if (location.kind === "removed") onOpenRevisionPreview(location.id);
+  const navigateRevisionLocation = useCallback((location: RevisionLocation) => {
+    if (location.kind === "removed") onOpenRevisionPreview(location);
     else if (editorView) scrollToRevisionLocation(editorView, location.id);
-  };
+  }, [editorView, onOpenRevisionPreview]);
 
   return <div className={`writing-editor-root${showRevisionChanges ? " is-showing-revision-changes" : ""}`}>
     <div ref={mountRef} data-milkdown-root="true" />
@@ -306,7 +314,7 @@ function App() {
     versionStatusRevision,
   }), [activeDocument.assetFolder, activeDocument.assets, activeDocument.content, activeDocument.document, activeDocument.formatSettings, activeDocument.isDirty, activeDocument.path, activeDocument.title, versionStatusRevision]);
   const revisionLocationState = useCurrentRevisionLocations(featureDocument, showRevisionChanges);
-  const revisionLocations = revisionLocationState.kind === "ready" ? revisionLocationState.locations : [];
+  const revisionLocations = revisionLocationState.locations;
   const effectiveDocumentDefaults = useMemo(() => ({
     font: activeDocument.formatSettings.defaults.font ?? applicationAppearance.font,
     tableStyle: activeDocument.formatSettings.defaults.tableStyle ?? applicationAppearance.tableStyle,
@@ -449,10 +457,9 @@ function App() {
 
   const openVersionDiff = useCallback((change: VersionChange) => setActiveVersionComparison({ initialPath: change.path, versionId: null, presentation: "rendered" }), []);
   const openVersionHistoryComparison = useCallback((version: VersionRecord) => setActiveVersionComparison({ initialPath: null, versionId: version.id, presentation: "rendered" }), []);
-  const openRevisionPreviewAtLocation = useCallback((locationId: string) => setActiveVersionComparison({ initialPath: null, versionId: null, presentation: "rendered", focusLocationId: locationId }), []);
+  const openRevisionPreviewAtLocation = useCallback((location: RevisionLocation) => setActiveVersionComparison({ initialPath: null, versionId: null, presentation: "rendered", focusLocation: location }), []);
   const closeVersionDiff = useCallback(() => {
     setActiveVersionComparison((current) => current?.presentation === "source" ? { ...current, presentation: "rendered" } : null);
-    setVersionStatusRevision((revision) => revision + 1);
   }, []);
   const openAdvancedVersionComparison = useCallback(() => {
     if (activeDocument.isDirty && !window.confirm(text.versionAdvancedUnsavedNotice)) return;
@@ -1062,13 +1069,14 @@ function App() {
                 firstLineIndent={effectiveDocumentDefaults.firstLineIndent}
                 showRevisionChanges={showRevisionChanges}
                 revisionLocations={revisionLocations}
+                revisionBaselineKey={`${activeDocument.path ?? ""}\u0000${activeDocument.assetFolder ?? ""}\u0000${versionStatusRevision}`}
                 onOpenRevisionPreview={openRevisionPreviewAtLocation}
               />
           </section>
           {activeVersionComparison?.presentation === "rendered" && <RenderedRevisionViewer
             document={featureDocument}
             versionId={activeVersionComparison.versionId}
-            initialLocationId={activeVersionComparison.focusLocationId}
+            initialLocation={activeVersionComparison.focusLocation}
             text={text}
             onClose={closeVersionDiff}
             onOpenAdvanced={openAdvancedVersionComparison}

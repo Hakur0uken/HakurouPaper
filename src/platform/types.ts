@@ -119,22 +119,28 @@ export type RevisionDescriptor = {
   authorEmail?: string;
 };
 
-/** A read-only image resource captured with a document revision. */
-export type RevisionAssetSnapshot = {
+/** A lightweight, read-only image entry captured with a document revision. */
+export type RevisionAssetManifest = {
   /** Markdown-facing path, e.g. ./assets/paper-assets/figure.png. */
   path: string;
   mimeType: string;
-  /** Base64 image bytes. Historical resources are never written into the document folder. */
+  /** Git object id when known, so image changes can be compared without reading bytes. */
+  contentHash?: string;
+};
+
+/** Binary image bytes loaded only after a revision image enters the viewport. */
+export type RevisionAssetSnapshot = RevisionAssetManifest & {
+  /** Historical resources are never written into the document folder. */
   dataBase64: string;
 };
 
-/** Everything required to render a revision without changing the working tree. */
-export type RevisionDocumentSnapshot = {
+/** Text and metadata required for structural revision comparison. No image bytes. */
+export type RevisionTextSnapshot = {
   revision: RevisionDescriptor;
   markdown: string;
   /** hakurou.json content when present; consumers render its effects rather than exposing JSON. */
   metadata?: string;
-  assets: RevisionAssetSnapshot[];
+  assets: RevisionAssetManifest[];
 };
 
 export type VersionComparisonSummary = {
@@ -289,7 +295,7 @@ export interface VersionControlService {
   getChanges(input: { documentPath: string; assetFolder: string | null }): Promise<VersionChange[]>;
   getComparison(input: { documentPath: string; assetFolder: string | null; versionId?: string | null }): Promise<VersionComparison>;
   getDiff(input: { documentPath: string; assetFolder: string | null; path: string; versionId?: string | null }): Promise<FileDiff>;
-  getRevisionDocumentSnapshot(input: {
+  getRevisionTextSnapshot(input: {
     documentPath: string;
     assetFolder: string | null;
     /** A full commit id; omit it with useWorkingCopy for the in-memory current document. */
@@ -297,7 +303,14 @@ export interface VersionControlService {
     useWorkingCopy?: boolean;
     /** Unsaved editor content is used only for the right-hand current-document snapshot. */
     workingContent?: string | null;
-  }): Promise<RevisionDocumentSnapshot>;
+  }): Promise<RevisionTextSnapshot>;
+  getRevisionAsset(input: {
+    documentPath: string;
+    assetFolder: string | null;
+    revisionId: string;
+    /** Markdown-facing resource path from the historical revision manifest. */
+    assetPath: string;
+  }): Promise<RevisionAssetSnapshot | null>;
   createVersion(input: CreateVersionInput): Promise<VersionRecord>;
   getHistory(input: { documentPath: string; assetFolder: string | null; limit?: number }): Promise<VersionRecord[]>;
   inspectIdentity(input: { documentPath: string; assetFolder: string | null }): Promise<VersionAuthorIdentity>;

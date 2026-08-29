@@ -152,6 +152,14 @@ pub struct VersionComparison {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RevisionAssetManifest {
+    path: String,
+    mime_type: String,
+    content_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RevisionAssetSnapshot {
     path: String,
     mime_type: String,
@@ -160,11 +168,11 @@ pub struct RevisionAssetSnapshot {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RevisionDocumentSnapshot {
+pub struct RevisionTextSnapshot {
     revision: RevisionDescriptor,
     markdown: String,
     metadata: Option<String>,
-    assets: Vec<RevisionAssetSnapshot>,
+    assets: Vec<RevisionAssetManifest>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1189,27 +1197,10 @@ fn markdown_asset_path(
     Ok(format!("./{}", normalize_repository_path(relative)?))
 }
 
-fn revision_assets_from_files(
-    context: &RepositoryContext,
-    files: impl IntoIterator<Item = (String, Vec<u8>)>,
-) -> Result<Vec<RevisionAssetSnapshot>, String> {
-    files
-        .into_iter()
-        .filter(|(path, _)| resource_kind(path, &context.scope) == VersionResourceKind::Image)
-        .map(|(path, bytes)| {
-            Ok(RevisionAssetSnapshot {
-                path: markdown_asset_path(context, &path)?,
-                mime_type: revision_asset_mime_type(&path).to_string(),
-                data_base64: BASE64.encode(bytes),
-            })
-        })
-        .collect()
-}
-
-fn collect_working_asset_files(
+fn collect_working_asset_manifest(
     context: &RepositoryContext,
     directory: &Path,
-    files: &mut Vec<(String, Vec<u8>)>,
+    assets: &mut Vec<RevisionAssetManifest>,
 ) -> Result<(), String> {
     for entry in
         fs::read_dir(directory).map_err(|error| format!("无法读取当前文稿资源：{error}"))?
@@ -1223,7 +1214,7 @@ fn collect_working_asset_files(
             continue;
         }
         if file_type.is_dir() {
-            collect_working_asset_files(context, &entry.path(), files)?;
+            collect_working_asset_manifest(context, &entry.path(), assets)?;
             continue;
         }
         if !file_type.is_file() {
@@ -1233,17 +1224,19 @@ fn collect_working_asset_files(
         if resource_kind(&path, &context.scope) != VersionResourceKind::Image {
             continue;
         }
-        let bytes =
-            fs::read(entry.path()).map_err(|error| format!("无法读取当前文稿资源：{error}"))?;
-        files.push((path, bytes));
+        assets.push(RevisionAssetManifest {
+            path: markdown_asset_path(context, &path)?,
+            mime_type: revision_asset_mime_type(&path).to_string(),
+            content_hash: None,
+        });
     }
     Ok(())
 }
 
-fn working_revision_snapshot(
+fn working_revision_text_snapshot(
     context: &RepositoryContext,
     working_content: Option<String>,
-) -> Result<RevisionDocumentSnapshot, String> {
+) -> Result<RevisionTextSnapshot, String> {
     let markdown = working_content.unwrap_or_else(|| {
         fs::read_to_string(context.root.join(&context.scope.document)).unwrap_or_default()
     });
@@ -1261,47 +1254,117 @@ fn working_revision_snapshot(
         .map(|path| fs::read_to_string(context.root.join(path)))
         .transpose()
         .map_err(|error| format!("无法读取文稿设置：{error}"))?;
-    let mut files = Vec::new();
+    let mut assets = Vec::new();
     if let Some(folder) = &context.scope.asset_folder {
         let directory = context.root.join(folder);
         if directory.is_dir() {
-            collect_working_asset_files(context, &directory, &mut files)?;
+            collect_working_asset_manifest(context, &directory, &mut assets)?;
         }
     }
-    Ok(RevisionDocumentSnapshot {
+    assets.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(RevisionTextSnapshot {
         revision: current_document_revision(),
         markdown,
         metadata,
-        assets: revision_assets_from_files(context, files)?,
+        assets,
     })
 }
 
-fn version_revision_snapshot(
+fn target_scope_entries(
+    context: &RepositoryContext,
+    target: &VersionRecord,
+) -> Result<Vec<(String, String)>, String> {
+    let mut arguments = vec![
+        "ls-tree".to_string(),
+        "-r".to_string(),
+        "-z".to_string(),
+        target.id.clone(),
+        "--".to_string(),
+    ];
+    arguments.extend(scope_pathspecs(&context.scope));
+    let output = git_output_in_owned(&context.root, &arguments)?;
+    if !output.status.success() {
+        return Err("无法读取目标版本的文稿内容。".into());
+    }
+    let mut entries = Vec::new();
+    for record in output
+        .stdout
+        .split(|byte| *byte == b'\0')
+        .filter(|record| !record.is_empty())
+    {
+        let Some((header, raw_path)) = record
+            .splitn(2, |byte: &u8| *byte == b'\t')
+            .collect::<Vec<_>>()
+            .split_first()
+            .and_then(|(header, rest)| rest.first().map(|path| (*header, *path)))
+        else {
+            return Err("目标版本包含无法识别的文件记录。".into());
+        };
+        let header = String::from_utf8_lossy(header);
+        let mut header_fields = header.split_whitespace();
+        let mode = header_fields.next().unwrap_or_default();
+        let object_type = header_fields.next().unwrap_or_default();
+        let object_id = header_fields.next().unwrap_or_default();
+        let path = normalize_status_path(&String::from_utf8_lossy(raw_path))?;
+        if !path_is_in_scope(&path, &context.scope)
+            || object_type != "blob"
+            || mode == "120000"
+            || object_id.is_empty()
+        {
+            return Err("目标版本包含不安全的文稿资源路径。".into());
+        }
+        entries.push((path, object_id.to_string()));
+    }
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+    if !entries.iter().any(|(path, _)| path == &context.scope.document) {
+        return Err("该版本不包含当前文稿，无法恢复。".into());
+    }
+    Ok(entries)
+}
+
+fn target_file_content(root: &Path, version_id: &str, path: &str) -> Result<Vec<u8>, String> {
+    let output = git_output_in_owned(root, &["show".to_string(), format!("{version_id}:{path}")])?;
+    if !output.status.success() {
+        return Err("无法准备目标版本的文稿内容。".into());
+    }
+    Ok(output.stdout)
+}
+
+fn version_revision_text_snapshot(
     context: &RepositoryContext,
     version: &VersionRecord,
-) -> Result<RevisionDocumentSnapshot, String> {
-    let files = target_scope_files(context, version)?;
-    let markdown = files
-        .iter()
-        .find(|file| file.path == context.scope.document)
-        .map(|file| String::from_utf8_lossy(&file.content).to_string())
-        .ok_or("该历史版本缺少当前文稿内容。")?;
+) -> Result<RevisionTextSnapshot, String> {
+    let entries = target_scope_entries(context, version)?;
+    let markdown = String::from_utf8_lossy(&target_file_content(
+        &context.root,
+        &version.id,
+        &context.scope.document,
+    )?)
+    .to_string();
     let metadata_path = context
         .scope
         .asset_folder
         .as_ref()
         .map(|folder| format!("{folder}/hakurou.json"));
-    let metadata = metadata_path.and_then(|path| {
-        files
-            .iter()
-            .find(|file| file.path == path)
-            .map(|file| String::from_utf8_lossy(&file.content).to_string())
-    });
-    let assets = revision_assets_from_files(
-        context,
-        files.into_iter().map(|file| (file.path, file.content)),
-    )?;
-    Ok(RevisionDocumentSnapshot {
+    let metadata = metadata_path
+        .filter(|path| entries.iter().any(|(entry_path, _)| entry_path == path))
+        .map(|path| {
+            target_file_content(&context.root, &version.id, &path)
+                .map(|bytes| String::from_utf8_lossy(&bytes).to_string())
+        })
+        .transpose()?;
+    let assets = entries
+        .into_iter()
+        .filter(|(path, _)| resource_kind(path, &context.scope) == VersionResourceKind::Image)
+        .map(|(path, content_hash)| {
+            Ok(RevisionAssetManifest {
+                path: markdown_asset_path(context, &path)?,
+                mime_type: revision_asset_mime_type(&path).to_string(),
+                content_hash: Some(content_hash),
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(RevisionTextSnapshot {
         revision: revision_from_record(version),
         markdown,
         metadata,
@@ -1970,17 +2033,15 @@ pub fn get_version_comparison(
     })
 }
 
-/// Read a complete revision snapshot without checking out, switching, or writing Git state.
-/// Historical image bytes are returned directly from Git objects so they can never overwrite
-/// the current document's assets.
+/// Read revision text and an image manifest without checking out, switching, or reading image bytes.
 #[tauri::command]
-pub fn get_revision_document_snapshot(
+pub fn get_revision_text_snapshot(
     document_path: String,
     asset_folder: Option<String>,
     revision_id: Option<String>,
     use_working_copy: Option<bool>,
     working_content: Option<String>,
-) -> Result<RevisionDocumentSnapshot, String> {
+) -> Result<RevisionTextSnapshot, String> {
     let document = validate_document_path(&document_path)?;
     let supplied_asset_folder = asset_folder.filter(|folder| safe_asset_folder(folder));
     let working_asset_folder = use_working_copy
@@ -1998,26 +2059,77 @@ pub fn get_revision_document_snapshot(
             .or(working_asset_folder.as_deref()),
     )?;
     if use_working_copy.unwrap_or(false) {
-        return working_revision_snapshot(&context, working_content);
+        return working_revision_text_snapshot(&context, working_content);
     }
     if let Some(revision_id) = revision_id.filter(|value| !value.trim().is_empty()) {
         let version = version_record_for_id(&context.root, &revision_id)?;
-        let snapshot = version_revision_snapshot(&context, &version)?;
+        let snapshot = version_revision_text_snapshot(&context, &version)?;
         if supplied_asset_folder.is_some() {
             return Ok(snapshot);
         }
         if let Some(discovered_asset_folder) = asset_folder_from_markdown(&snapshot.markdown) {
             let discovered_context = repository_context(&document, Some(&discovered_asset_folder))?;
-            return version_revision_snapshot(&discovered_context, &version);
+            return version_revision_text_snapshot(&discovered_context, &version);
         }
         return Ok(snapshot);
     }
-    Ok(RevisionDocumentSnapshot {
+    Ok(RevisionTextSnapshot {
         revision: empty_revision(),
         markdown: String::new(),
         metadata: None,
         assets: Vec::new(),
     })
+}
+
+fn repository_asset_path(context: &RepositoryContext, asset_path: &str) -> Result<String, String> {
+    let relative_asset = asset_path
+        .trim()
+        .strip_prefix("./")
+        .ok_or("历史资源路径必须是文稿相对路径。")?;
+    let document_dir = Path::new(&context.scope.document)
+        .parent()
+        .unwrap_or_else(|| Path::new(""));
+    let path = normalize_repository_path(&document_dir.join(relative_asset))?;
+    if resource_kind(&path, &context.scope) != VersionResourceKind::Image {
+        return Err("只能读取当前文稿范围内的图片预览资源。".into());
+    }
+    Ok(path)
+}
+
+/// Read one historical image directly from its Git object. This command never checks out
+/// files or writes into the current document's asset directory.
+#[tauri::command]
+pub fn get_revision_asset(
+    document_path: String,
+    asset_folder: Option<String>,
+    revision_id: String,
+    asset_path: String,
+) -> Result<Option<RevisionAssetSnapshot>, String> {
+    let document = validate_document_path(&document_path)?;
+    let context = repository_context(
+        &document,
+        asset_folder
+            .filter(|folder| safe_asset_folder(folder))
+            .as_deref(),
+    )?;
+    let revision_id = revision_id.trim();
+    if revision_id.is_empty() {
+        return Ok(None);
+    }
+    let version = version_record_for_id(&context.root, revision_id)?;
+    let path = repository_asset_path(&context, &asset_path)?;
+    let output = git_output_in_owned(
+        &context.root,
+        &["show".to_string(), format!("{}:{path}", version.id)],
+    )?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    Ok(Some(RevisionAssetSnapshot {
+        path: markdown_asset_path(&context, &path)?,
+        mime_type: revision_asset_mime_type(&path).to_string(),
+        data_base64: BASE64.encode(output.stdout),
+    }))
 }
 
 #[tauri::command]
@@ -2546,18 +2658,27 @@ mod tests {
             .expect("status should read")
             .stdout;
 
-        let historical =
-            version_revision_snapshot(&context, &version).expect("historical snapshot should read");
+        let historical = version_revision_text_snapshot(&context, &version)
+            .expect("historical text snapshot should read");
         assert!(historical.markdown.contains("# 初稿"));
         assert_eq!(historical.assets.len(), 1);
+        assert!(historical.assets[0].content_hash.is_some());
+        let historical_asset = get_revision_asset(
+            document.to_string_lossy().to_string(),
+            Some("paper-a1b2c3".into()),
+            version.id.clone(),
+            "./assets/paper-a1b2c3/figure.png".into(),
+        )
+        .expect("historical asset should read")
+        .expect("historical asset should exist");
         assert_eq!(
-            BASE64.decode(&historical.assets[0].data_base64).unwrap(),
+            BASE64.decode(&historical_asset.data_base64).unwrap(),
             b"old image"
         );
-        let working = working_revision_snapshot(&context, Some("# 内存修改\n".into()))
-            .expect("working snapshot should read");
+        let working = working_revision_text_snapshot(&context, Some("# 内存修改\n".into()))
+            .expect("working text snapshot should read");
         assert_eq!(working.markdown, "# 内存修改\n");
-        let discovered_historical = get_revision_document_snapshot(
+        let discovered_historical = get_revision_text_snapshot(
             document.to_string_lossy().to_string(),
             None,
             Some(version.id.clone()),
@@ -2566,21 +2687,15 @@ mod tests {
         )
         .expect("historical snapshot should discover its assets folder from Markdown");
         assert_eq!(discovered_historical.assets.len(), 1);
-        let discovered_working = get_revision_document_snapshot(
+        let discovered_working = get_revision_text_snapshot(
             document.to_string_lossy().to_string(),
             None,
             None,
             Some(true),
             Some("# 当前稿\n\n![图](./assets/paper-a1b2c3/figure.png)\n".into()),
         )
-        .expect("working snapshot should discover its assets folder from Markdown");
+        .expect("working text snapshot should discover its assets folder from Markdown");
         assert_eq!(discovered_working.assets.len(), 1);
-        assert_eq!(
-            BASE64
-                .decode(&discovered_working.assets[0].data_base64)
-                .unwrap(),
-            b"new image"
-        );
         let status_after = git_output_in(&root, &["status", "--porcelain=v1", "-z"])
             .expect("status should read")
             .stdout;

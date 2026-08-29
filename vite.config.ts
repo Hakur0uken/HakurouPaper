@@ -8,6 +8,15 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react()],
 
+  // `remark-parse` reaches `decode-named-character-reference` through the
+  // package export map.  The browser entry assumes `document` exists, which
+  // makes the rendered-revision Worker fail during module evaluation.  Adding
+  // the standard `worker` condition lets both bundles select its DOM-free
+  // implementation; the browser bundle remains compatible as well.
+  resolve: {
+    conditions: ["worker"],
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import type { RevisionLocation } from "./revisionTypes";
 
 type RulerLayout = { top: number; left: number; height: number; positions: Map<string, number> };
@@ -13,15 +13,16 @@ function sameLayout(left: RulerLayout | null, right: RulerLayout) {
  * markers use rendered DOM positions where possible, so a click maps to the
  * same scroll range as the scrollbar thumb instead of a count of Markdown blocks.
  */
-export function RevisionOverviewRuler({ locations, activeLocationId, onNavigate, scrollContainer, className = "" }: { locations: RevisionLocation[]; activeLocationId?: string | null; onNavigate: (location: RevisionLocation) => void; scrollContainer: HTMLElement | null; className?: string }) {
+export const RevisionOverviewRuler = memo(function RevisionOverviewRuler({ locations, activeLocationId, onNavigate, scrollContainer, className = "" }: { locations: RevisionLocation[]; activeLocationId?: string | null; onNavigate: (location: RevisionLocation) => void; scrollContainer: HTMLElement | null; className?: string }) {
   const [layout, setLayout] = useState<RulerLayout | null>(null);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!scrollContainer || locations.length === 0) {
       setLayout(null);
       return;
     }
     let frame = 0;
+    let debounce = 0;
     const update = () => {
       const bounds = scrollContainer.getBoundingClientRect();
       const styles = window.getComputedStyle(scrollContainer);
@@ -51,22 +52,27 @@ export function RevisionOverviewRuler({ locations, activeLocationId, onNavigate,
       } satisfies RulerLayout;
       setLayout((previous) => sameLayout(previous, next) ? previous : next);
     };
-    const scheduleUpdate = () => {
+    const scheduleUpdate = (immediate = false) => {
       window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(update);
+      window.clearTimeout(debounce);
+      const queueFrame = () => { frame = window.requestAnimationFrame(update); };
+      if (immediate) queueFrame();
+      else debounce = window.setTimeout(queueFrame, 90);
     };
-    update();
-    // A second frame catches images and editor decorations that settle just after React commits.
-    scheduleUpdate();
-    const resizeObserver = new ResizeObserver(scheduleUpdate);
+    // The first calibration happens after the revision DOM is visible. Subsequent
+    // image loads are batched so a long page does not remeasure for every image.
+    scheduleUpdate(true);
+    const scheduleDeferredUpdate = () => scheduleUpdate();
+    const resizeObserver = new ResizeObserver(scheduleDeferredUpdate);
     resizeObserver.observe(scrollContainer);
-    scrollContainer.addEventListener("load", scheduleUpdate, true);
-    window.addEventListener("resize", scheduleUpdate);
+    scrollContainer.addEventListener("load", scheduleDeferredUpdate, true);
+    window.addEventListener("resize", scheduleDeferredUpdate);
     return () => {
       window.cancelAnimationFrame(frame);
+      window.clearTimeout(debounce);
       resizeObserver.disconnect();
-      scrollContainer.removeEventListener("load", scheduleUpdate, true);
-      window.removeEventListener("resize", scheduleUpdate);
+      scrollContainer.removeEventListener("load", scheduleDeferredUpdate, true);
+      window.removeEventListener("resize", scheduleDeferredUpdate);
     };
   }, [locations, scrollContainer]);
 
@@ -94,4 +100,4 @@ export function RevisionOverviewRuler({ locations, activeLocationId, onNavigate,
     />;
     })}
   </nav>;
-}
+});

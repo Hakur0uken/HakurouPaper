@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { CreateVersionInput, FileDiff, GitInstallationStatus, RestoreVersionInput, RestoreVersionPreflight, RestoreVersionResult, RevisionDocumentSnapshot, VersionAuthorIdentity, VersionChange, VersionComparison, VersionControlService, VersionRecord, VersionRepositoryInfo } from "../types";
+import type { CreateVersionInput, FileDiff, GitInstallationStatus, RestoreVersionInput, RestoreVersionPreflight, RestoreVersionResult, RevisionAssetSnapshot, RevisionTextSnapshot, VersionAuthorIdentity, VersionChange, VersionComparison, VersionControlService, VersionRecord, VersionRepositoryInfo } from "../types";
 
 /** The only frontend boundary that knows the Tauri command names for Git. */
 export const tauriVersionControl: VersionControlService = {
@@ -21,8 +21,11 @@ export const tauriVersionControl: VersionControlService = {
   getDiff({ documentPath, assetFolder, path, versionId }) {
     return invoke<FileDiff>("get_version_diff", { documentPath, assetFolder, path, versionId });
   },
-  getRevisionDocumentSnapshot({ documentPath, assetFolder, revisionId, useWorkingCopy, workingContent }) {
-    return invoke<RevisionDocumentSnapshot>("get_revision_document_snapshot", { documentPath, assetFolder, revisionId, useWorkingCopy, workingContent });
+  getRevisionTextSnapshot({ documentPath, assetFolder, revisionId, useWorkingCopy, workingContent }) {
+    return invoke<RevisionTextSnapshot>("get_revision_text_snapshot", { documentPath, assetFolder, revisionId, useWorkingCopy, workingContent });
+  },
+  getRevisionAsset({ documentPath, assetFolder, revisionId, assetPath }) {
+    return invoke<RevisionAssetSnapshot | null>("get_revision_asset", { documentPath, assetFolder, revisionId, assetPath });
   },
   createVersion({ documentPath, assetFolder, message }: CreateVersionInput) {
     return invoke<VersionRecord>("create_version", { documentPath, assetFolder, message });
