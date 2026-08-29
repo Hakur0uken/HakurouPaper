@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import type { AssetV1 } from "../core/schema";
 import type { UiText } from "../i18n";
+import type { VersionChange, VersionRecord } from "../platform";
 
 export type FeatureDocumentContext = {
   title: string;
@@ -8,11 +9,16 @@ export type FeatureDocumentContext = {
   content: string;
   assetFolder: string | null;
   assets: AssetV1[];
+  isDirty: boolean;
+  versionStatusRevision: number;
 };
 
 export type FeatureWorkspaceProps = {
   document: FeatureDocumentContext;
   text: UiText;
+  onSaveDocument: () => Promise<boolean>;
+  onOpenVersionDiff: (change: VersionChange) => void;
+  onOpenVersionHistoryComparison: (version: VersionRecord) => void;
 };
 
 export type SidebarContribution = {

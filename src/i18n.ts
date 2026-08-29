@@ -80,6 +80,86 @@ export type UiText = {
   documentStats: (words: number, characters: number) => string;
   documentDelivery: string;
   documentDeliveryDescription: string;
+  versionManagement: string;
+  versionManagementDescription: string;
+  versionRequiresSavedDocument: string;
+  versionCheckingGit: string;
+  versionGitAvailable: (version?: string) => string;
+  versionGitUnavailable: string;
+  versionGitUnavailableDescription: string;
+  getGit: string;
+  checkGit: string;
+  versionNotEnabled: string;
+  versionScope: string;
+  versionIncludesMarkdown: (name: string) => string;
+  versionIncludesAssets: (name: string) => string;
+  enableVersionManagement: string;
+  enablingVersionManagement: string;
+  versionEnabled: string;
+  versionRepository: string;
+  versionCurrentBranch: string;
+  versionNoHistory: string;
+  versionBranchUnavailable: string;
+  versionCurrentChanges: string;
+  versionRefresh: string;
+  versionNoChanges: string;
+  versionNoDocumentChanges: string;
+  versionUnsavedContentNotice: string;
+  versionChangeModified: string;
+  versionChangeAdded: string;
+  versionChangeDeleted: string;
+  versionChangeRenamed: string;
+  versionDiffTitle: string;
+  versionDiffComparison: string;
+  versionDiffClose: string;
+  versionDiffOriginal: string;
+  versionDiffWorkingTree: string;
+  versionDiffLoading: string;
+  versionDiffNoTextChanges: string;
+  versionDiffBinary: string;
+  versionComparisonTitle: string;
+  versionAdvancedMode: string;
+  versionChangedFiles: string;
+  versionFilesChanged: (count: number) => string;
+  versionLineSummary: (added: number, removed: number) => string;
+  versionShowInternalFiles: string;
+  versionLatestRevision: string;
+  versionPreviousVersion: string;
+  versionCurrentDocument: string;
+  versionThisVersion: string;
+  versionNotCreatedYet: string;
+  versionNoSavedRevision: string;
+  versionCreate: string;
+  versionDescription: string;
+  versionDescriptionHint: string;
+  versionDescriptionHelp: string;
+  versionCreateVersion: string;
+  versionCreatingVersion: string;
+  versionCreated: string;
+  versionHistory: string;
+  versionHistoryEmpty: string;
+  versionHistoryLoading: string;
+  versionMessageRequired: string;
+  versionAuthorInformation: string;
+  versionAuthorName: string;
+  versionAuthorEmail: string;
+  versionSaveAuthor: string;
+  versionSavingAuthor: string;
+  versionRestoreThis: string;
+  versionRestoreTitle: string;
+  versionRestoreDescription: (title: string) => string;
+  versionRestoreUnsaved: string;
+  versionSaveDocumentAndContinue: string;
+  versionRestoreProtectionTitle: string;
+  versionRestoreProtectionDescription: string;
+  versionRestoreSaveFirst: string;
+  versionRestoreDiscard: string;
+  versionRestoreDiscardWarning: string;
+  versionRestoreBeforeMessage: string;
+  versionRestoreContinue: string;
+  versionRestoring: string;
+  versionRestored: string;
+  versionAlreadyEquivalent: string;
   pandocChecking: string;
   pandocReady: (version: string | undefined) => string;
   pandocUnavailable: string;
@@ -184,7 +264,7 @@ export const uiText: Record<UiLanguage, UiText> = {
     untitledDocument: "未命名文稿",
     recentFiles: "最近打开的文件",
     noRecentFiles: "暂无最近打开的文稿",
-    save: "保存",
+    save: "保存文稿",
     sharePackage: "创建分享包…",
     chooseSharePackageDestination: "选择分享包保存位置",
     sharePackageRequiresSave: "请先保存文稿，再创建分享包。",
@@ -235,7 +315,7 @@ export const uiText: Record<UiLanguage, UiText> = {
     applicationMenu: "应用菜单",
     recentFilesList: "最近打开的文件",
     openedDocuments: "已打开文稿",
-    unsaved: "未保存",
+    unsaved: "尚未保存",
     closeDocumentWithTitle: (title) => `关闭 ${title}`,
     workspaceNavigation: "工作区导航",
     outline: "目录",
@@ -243,13 +323,93 @@ export const uiText: Record<UiLanguage, UiText> = {
     collapseHeading: "收起此标题下内容",
     expandHeading: "展开此标题下内容",
     editingArea: "文档编辑区",
-    unsavedChanges: "未保存修改",
-    savedLocally: "已保存在本地",
+    unsavedChanges: "尚未保存",
+    savedLocally: "已保存",
     localDraft: "本地草稿",
     selectedCount: (count) => `· 已选 ${count} 字`,
     documentStats: (words, characters) => `${words} 字 · ${characters} 字符`,
     documentDelivery: "文稿交付",
     documentDeliveryDescription: "通过 Pandoc 生成交付用 Word 文档；排版由所选 Word 模板决定，不映射编辑器展示设置。",
+    versionManagement: "版本管理",
+    versionManagementDescription: "使用本机 Git 管理当前文稿及其专属资源。",
+    versionRequiresSavedDocument: "请先保存文稿，再启用版本管理。",
+    versionCheckingGit: "正在检测 Git…",
+    versionGitAvailable: (version) => `Git 已就绪${version ? ` · ${version}` : ""}`,
+    versionGitUnavailable: "未检测到 Git",
+    versionGitUnavailableDescription: "HakurouPaper 使用标准 Git 进行本地版本管理。安装 Git 后即可使用此功能。",
+    getGit: "获取 Git",
+    checkGit: "重新检测",
+    versionNotEnabled: "当前文稿尚未启用版本管理。",
+    versionScope: "版本范围",
+    versionIncludesMarkdown: (name) => name,
+    versionIncludesAssets: (name) => `assets/${name}`,
+    enableVersionManagement: "启用版本管理",
+    enablingVersionManagement: "正在启用…",
+    versionEnabled: "已启用",
+    versionRepository: "仓库",
+    versionCurrentBranch: "当前分支",
+    versionNoHistory: "当前尚无历史版本",
+    versionBranchUnavailable: "尚未识别分支",
+    versionCurrentChanges: "当前修改",
+    versionRefresh: "刷新",
+    versionNoChanges: "当前文稿相对于上一个版本没有修改。",
+    versionNoDocumentChanges: "当前文稿内容没有修改；资源修改会随创建版本一并保存。",
+    versionUnsavedContentNotice: "文稿有尚未写入磁盘的修改。Git 修改状态基于最近一次保存内容。",
+    versionChangeModified: "已修改",
+    versionChangeAdded: "新增",
+    versionChangeDeleted: "已删除",
+    versionChangeRenamed: "已重命名",
+    versionDiffTitle: "比较修改",
+    versionDiffComparison: "当前版本 ↔ 工作区",
+    versionDiffClose: "关闭比较",
+    versionDiffOriginal: "当前版本",
+    versionDiffWorkingTree: "工作区",
+    versionDiffLoading: "正在读取比较内容…",
+    versionDiffNoTextChanges: "没有可显示的文本行修改。",
+    versionDiffBinary: "二进制文件。本阶段不会读取或传输其内容。",
+    versionComparisonTitle: "版本比较",
+    versionAdvancedMode: "高级模式",
+    versionChangedFiles: "文件变化",
+    versionFilesChanged: (count) => `${count} 个文件发生变化`,
+    versionLineSummary: (added, removed) => `新增 ${added} 行 · 删除 ${removed} 行`,
+    versionShowInternalFiles: "显示内部文件",
+    versionLatestRevision: "最新版本",
+    versionPreviousVersion: "上一个版本",
+    versionCurrentDocument: "当前文稿",
+    versionThisVersion: "此版本",
+    versionNotCreatedYet: "尚未创建新版本",
+    versionNoSavedRevision: "尚无已保存版本",
+    versionCreate: "创建版本",
+    versionDescription: "版本说明",
+    versionDescriptionHint: "简要说明本版本的主要修改（最多 160 字）",
+    versionDescriptionHelp: "记录本版本的主要变化，方便查找",
+    versionCreateVersion: "创建版本",
+    versionCreatingVersion: "正在创建…",
+    versionCreated: "已创建版本。",
+    versionHistory: "版本历史",
+    versionHistoryEmpty: "当前文稿尚无历史版本。",
+    versionHistoryLoading: "正在读取版本历史…",
+    versionMessageRequired: "请填写版本说明。",
+    versionAuthorInformation: "版本作者信息",
+    versionAuthorName: "姓名",
+    versionAuthorEmail: "邮箱",
+    versionSaveAuthor: "保存并继续",
+    versionSavingAuthor: "正在保存…",
+    versionRestoreThis: "恢复此版本",
+    versionRestoreTitle: "恢复此版本？",
+    versionRestoreDescription: (title) => `将把“${title}”的内容恢复为当前文稿。现有历史版本不会被删除。`,
+    versionRestoreUnsaved: "当前文稿还有尚未保存的修改。",
+    versionSaveDocumentAndContinue: "保存文稿并继续",
+    versionRestoreProtectionTitle: "恢复前请保护当前修改",
+    versionRestoreProtectionDescription: "恢复到旧版本前，当前文稿还有尚未创建版本的修改。",
+    versionRestoreSaveFirst: "创建当前版本后恢复",
+    versionRestoreDiscard: "放弃当前修改并恢复",
+    versionRestoreDiscardWarning: "尚未创建版本的修改将被永久丢弃。",
+    versionRestoreBeforeMessage: "恢复前版本说明",
+    versionRestoreContinue: "继续恢复",
+    versionRestoring: "正在恢复…",
+    versionRestored: "已恢复该版本，并创建新的版本记录。",
+    versionAlreadyEquivalent: "当前文稿已经与该版本一致。",
     pandocChecking: "正在检测 Pandoc…",
     pandocReady: (version) => `Pandoc 已就绪${version ? ` · ${version}` : ""}`,
     pandocUnavailable: "未检测到 Pandoc",
@@ -354,7 +514,7 @@ export const uiText: Record<UiLanguage, UiText> = {
     untitledDocument: "Untitled document",
     recentFiles: "Recent Files",
     noRecentFiles: "No recently opened documents",
-    save: "Save",
+    save: "Save Document",
     sharePackage: "Create Share Package…",
     chooseSharePackageDestination: "Choose where to save the share package",
     sharePackageRequiresSave: "Save the document before creating a share package.",
@@ -413,13 +573,93 @@ export const uiText: Record<UiLanguage, UiText> = {
     collapseHeading: "Collapse this section",
     expandHeading: "Expand this section",
     editingArea: "Document editor",
-    unsavedChanges: "Unsaved changes",
-    savedLocally: "Saved locally",
+    unsavedChanges: "Unsaved",
+    savedLocally: "Saved",
     localDraft: "Local draft",
     selectedCount: (count) => ` · ${count} selected`,
     documentStats: (words, characters) => `${words} words · ${characters} characters`,
     documentDelivery: "Document Delivery",
     documentDeliveryDescription: "Create a delivery-ready Word document with Pandoc. The selected Word template controls layout; editor display settings are not exported.",
+    versionManagement: "Version Management",
+    versionManagementDescription: "Use the system Git installation to manage the current document and its dedicated assets.",
+    versionRequiresSavedDocument: "Save the document before enabling version management.",
+    versionCheckingGit: "Checking Git…",
+    versionGitAvailable: (version) => `Git is ready${version ? ` · ${version}` : ""}`,
+    versionGitUnavailable: "Git was not found",
+    versionGitUnavailableDescription: "HakurouPaper uses standard Git for local version management. Install Git to use this feature.",
+    getGit: "Get Git",
+    checkGit: "Check again",
+    versionNotEnabled: "Version management is not enabled for this document.",
+    versionScope: "Version scope",
+    versionIncludesMarkdown: (name) => name,
+    versionIncludesAssets: (name) => `assets/${name}`,
+    enableVersionManagement: "Enable Version Management",
+    enablingVersionManagement: "Enabling…",
+    versionEnabled: "Enabled",
+    versionRepository: "Repository",
+    versionCurrentBranch: "Current branch",
+    versionNoHistory: "There is no version history yet",
+    versionBranchUnavailable: "No branch identified yet",
+    versionCurrentChanges: "Current Changes",
+    versionRefresh: "Refresh",
+    versionNoChanges: "The current document has no changes compared with the previous version.",
+    versionNoDocumentChanges: "The document content has not changed; asset changes will be saved with the version.",
+    versionUnsavedContentNotice: "This document has changes not yet written to disk. Git status is based on the most recently saved content.",
+    versionChangeModified: "Modified",
+    versionChangeAdded: "Added",
+    versionChangeDeleted: "Deleted",
+    versionChangeRenamed: "Renamed",
+    versionDiffTitle: "Compare Changes",
+    versionDiffComparison: "Current version ↔ Working tree",
+    versionDiffClose: "Close comparison",
+    versionDiffOriginal: "Current version",
+    versionDiffWorkingTree: "Working tree",
+    versionDiffLoading: "Loading comparison…",
+    versionDiffNoTextChanges: "There are no text-line changes to display.",
+    versionDiffBinary: "Binary file. Its contents are not read or transferred in this phase.",
+    versionComparisonTitle: "Version Comparison",
+    versionAdvancedMode: "Advanced mode",
+    versionChangedFiles: "Changed Files",
+    versionFilesChanged: (count) => `${count} file${count === 1 ? "" : "s"} changed`,
+    versionLineSummary: (added, removed) => `${added} added · ${removed} removed`,
+    versionShowInternalFiles: "Show internal files",
+    versionLatestRevision: "Latest version",
+    versionPreviousVersion: "Previous version",
+    versionCurrentDocument: "Current document",
+    versionThisVersion: "This version",
+    versionNotCreatedYet: "No new version created yet",
+    versionNoSavedRevision: "No saved version yet",
+    versionCreate: "Create Version",
+    versionDescription: "Version description",
+    versionDescriptionHint: "Briefly describe the main changes in this version (up to 160 characters)",
+    versionDescriptionHelp: "Record the main changes in this version to make it easier to find later.",
+    versionCreateVersion: "Create Version",
+    versionCreatingVersion: "Creating…",
+    versionCreated: "Version created.",
+    versionHistory: "Version History",
+    versionHistoryEmpty: "This document has no version history yet.",
+    versionHistoryLoading: "Loading version history…",
+    versionMessageRequired: "Enter a version description.",
+    versionAuthorInformation: "Version author information",
+    versionAuthorName: "Name",
+    versionAuthorEmail: "Email",
+    versionSaveAuthor: "Save and continue",
+    versionSavingAuthor: "Saving…",
+    versionRestoreThis: "Restore This Version",
+    versionRestoreTitle: "Restore this version?",
+    versionRestoreDescription: (title) => `Restore “${title}” as the current document. Existing version history will not be deleted.`,
+    versionRestoreUnsaved: "The current document has unsaved changes.",
+    versionSaveDocumentAndContinue: "Save Document and Continue",
+    versionRestoreProtectionTitle: "Protect current changes first",
+    versionRestoreProtectionDescription: "The current document has changes that do not yet have a version.",
+    versionRestoreSaveFirst: "Create a current version, then restore",
+    versionRestoreDiscard: "Discard current changes and restore",
+    versionRestoreDiscardWarning: "Changes without a version will be permanently discarded.",
+    versionRestoreBeforeMessage: "Version description before restoring",
+    versionRestoreContinue: "Continue Restoring",
+    versionRestoring: "Restoring…",
+    versionRestored: "The version was restored and a new version record was created.",
+    versionAlreadyEquivalent: "The current document already matches this version.",
     pandocChecking: "Checking Pandoc…",
     pandocReady: (version) => `Pandoc is ready${version ? ` · ${version}` : ""}`,
     pandocUnavailable: "Pandoc was not found",

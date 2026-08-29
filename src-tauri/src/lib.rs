@@ -8,6 +8,7 @@ use std::{
 };
 use tauri::Manager;
 
+mod git;
 mod mathtype;
 mod pandoc;
 
@@ -725,6 +726,18 @@ pub fn run() {
             export_share_package,
             mathtype::inspect_math_type,
             mathtype::confirm_manual_mathtype_step,
+            git::inspect_git,
+            git::inspect_version_repository,
+            git::init_version_repository,
+            git::get_version_changes,
+            git::get_version_comparison,
+            git::get_version_diff,
+            git::create_version,
+            git::get_version_history,
+            git::inspect_version_identity,
+            git::configure_version_identity,
+            git::get_restore_preflight,
+            git::restore_version,
             pandoc::inspect_pandoc,
             pandoc::export_docx,
             close_application

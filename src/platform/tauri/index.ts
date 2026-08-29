@@ -3,6 +3,7 @@ import type { PlatformServices } from "../types";
 import { tauriAssets } from "./assets";
 import { tauriDialogs } from "./dialogs";
 import { tauriFiles } from "./files";
+import { tauriVersionControl } from "./git";
 import { tauriLinks } from "./links";
 import { tauriWindow } from "./window";
 
@@ -13,4 +14,5 @@ export const tauriPlatform: PlatformServices = {
   assets: tauriAssets,
   window: tauriWindow,
   links: tauriLinks,
+  versionControl: tauriVersionControl,
 };

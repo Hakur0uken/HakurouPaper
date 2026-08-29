@@ -36,6 +36,146 @@ export type MathTypeStatus = {
   message?: string;
 };
 
+/** Runtime detection of the system Git CLI, separate from platform capability. */
+export type GitInstallationStatus = {
+  available: boolean;
+  version?: string;
+  message?: string;
+};
+
+export type VersionDocumentScope = {
+  documentPath: string;
+  assetFolderPath?: string;
+};
+
+export type VersionRepositoryInfo = {
+  isRepository: boolean;
+  repositoryRoot?: string;
+  currentBranch?: string;
+  hasCommits: boolean;
+  documentScope: VersionDocumentScope;
+};
+
+/** A user-facing working-tree change, independent from Git's porcelain format. */
+export type VersionChangeKind = "added" | "modified" | "deleted" | "renamed" | "untracked";
+
+export type VersionResourceKind = "markdown" | "image" | "metadata" | "other";
+
+export type VersionChange = {
+  /** Repository-relative path, supplied by the native provider. */
+  path: string;
+  /** True only for the Markdown document currently open in HakurouPaper. */
+  isDocument: boolean;
+  kind: VersionChangeKind;
+  resourceKind: VersionResourceKind;
+  oldPath?: string;
+};
+
+export type DiffLineKind = "context" | "added" | "removed";
+
+export type DiffLine = {
+  kind: DiffLineKind;
+  oldLineNumber?: number;
+  newLineNumber?: number;
+  content: string;
+};
+
+export type DiffHunk = {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: DiffLine[];
+};
+
+export type TextFileDiff = {
+  kind: "text";
+  path: string;
+  changeKind: VersionChangeKind;
+  oldPath?: string;
+  hunks: DiffHunk[];
+};
+
+export type BinaryFileDiff = {
+  kind: "binary";
+  path: string;
+  changeKind: VersionChangeKind;
+  oldPath?: string;
+  /** Reserved for a future image preview or visual-diff capability. */
+  previewBefore?: string;
+  previewAfter?: string;
+};
+
+export type FileDiff = TextFileDiff | BinaryFileDiff;
+
+/** Describes either side of a comparison without tying the viewer to Git HEAD. */
+export type RevisionDescriptor = {
+  kind: "currentDocument" | "version" | "empty";
+  id?: string;
+  shortId?: string;
+  title?: string;
+  timestamp?: string;
+  authorName?: string;
+  authorEmail?: string;
+};
+
+export type VersionComparisonSummary = {
+  changedFiles: number;
+  addedLines: number;
+  removedLines: number;
+  internalFiles: number;
+};
+
+export type VersionComparison = {
+  baseRevision: RevisionDescriptor;
+  targetRevision: RevisionDescriptor;
+  changes: VersionChange[];
+  summary: VersionComparisonSummary;
+};
+
+export type VersionRecord = {
+  id: string;
+  shortId: string;
+  message: string;
+  timestamp: string;
+  authorName?: string;
+  authorEmail?: string;
+  /** All parents are retained so future branching is not modeled as a single chain. */
+  parentIds: string[];
+};
+
+export type CreateVersionInput = {
+  documentPath: string;
+  assetFolder: string | null;
+  message: string;
+};
+
+export type VersionAuthorIdentity = {
+  name?: string;
+  email?: string;
+};
+
+export type RestoreStrategy = "save-current-version-first" | "discard-current-changes";
+
+export type RestoreVersionPreflight = {
+  hasUnversionedScopeChanges: boolean;
+  targetVersion: VersionRecord;
+};
+
+export type RestoreVersionInput = {
+  documentPath: string;
+  assetFolder: string | null;
+  targetCommitId: string;
+  strategy: RestoreStrategy;
+  safetyVersionMessage?: string;
+};
+
+export type RestoreVersionResult = {
+  restoredFrom: VersionRecord;
+  createdVersion?: VersionRecord;
+  alreadyEquivalent: boolean;
+};
+
 export type FormulaExportMode = "word" | "mathType" | "mathTypeBatch" | "katexPreview";
 
 export type FormulaPreviewAsset = {
@@ -123,6 +263,22 @@ export interface LinkService {
   openExternal(url: string): Promise<void>;
 }
 
+/** A bounded local-Git provider surface; no arbitrary command execution. */
+export interface VersionControlService {
+  inspectGit(): Promise<GitInstallationStatus>;
+  inspectRepository(input: { documentPath: string; assetFolder: string | null }): Promise<VersionRepositoryInfo>;
+  initRepository(input: { documentPath: string; assetFolder: string | null }): Promise<VersionRepositoryInfo>;
+  getChanges(input: { documentPath: string; assetFolder: string | null }): Promise<VersionChange[]>;
+  getComparison(input: { documentPath: string; assetFolder: string | null; versionId?: string | null }): Promise<VersionComparison>;
+  getDiff(input: { documentPath: string; assetFolder: string | null; path: string; versionId?: string | null }): Promise<FileDiff>;
+  createVersion(input: CreateVersionInput): Promise<VersionRecord>;
+  getHistory(input: { documentPath: string; assetFolder: string | null; limit?: number }): Promise<VersionRecord[]>;
+  inspectIdentity(input: { documentPath: string; assetFolder: string | null }): Promise<VersionAuthorIdentity>;
+  configureIdentity(input: { documentPath: string; assetFolder: string | null; name: string; email: string }): Promise<VersionAuthorIdentity>;
+  getRestorePreflight(input: { documentPath: string; assetFolder: string | null; targetCommitId: string }): Promise<RestoreVersionPreflight>;
+  restoreVersion(input: RestoreVersionInput): Promise<RestoreVersionResult>;
+}
+
 export type PlatformServices = {
   capabilities: PlatformCapabilities;
   files: FileService;
@@ -130,4 +286,5 @@ export type PlatformServices = {
   assets: AssetService;
   window: WindowService;
   links: LinkService;
+  versionControl: VersionControlService;
 };

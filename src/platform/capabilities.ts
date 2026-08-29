@@ -5,6 +5,7 @@ export const tauriCapabilities: PlatformCapabilities = {
   vectorClipboard: true,
   externalProcesses: true,
   directoryProjects: true,
+  // Kept as a legacy capability. Whether Git exists is checked at runtime.
   nativeGit: false,
   docxExport: true,
   filesystemWatch: false,

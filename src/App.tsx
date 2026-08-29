@@ -8,13 +8,13 @@ import { history } from "@milkdown/plugin-history";
 import { listener, listenerCtx } from "@milkdown/plugin-listener";
 import { nord } from "@milkdown/theme-nord";
 import { EditorControls } from "./EditorControls";
-import { featureRegistry, type FeatureDocumentContext } from "./features";
+import { featureRegistry, VersionDiffViewer, type FeatureDocumentContext } from "./features";
 import { uiText, type UiLanguage, type UiText } from "./i18n";
 import { OutlineRailIcon } from "./ui/RailIcons";
 import { createImageAssetPlugins } from "./editor/image";
 import { formulaPlugins } from "./math";
 import { HAKUROU_SCHEMA_VERSION, collectDocumentImageAssets, createDocumentSchema, parseDocumentSidecar, serializeDocumentSidecar, type AssetV1, type DocumentV1 } from "./core/schema";
-import { platform } from "./platform";
+import { platform, type RestoreStrategy, type VersionChange, type VersionRecord } from "./platform";
 import { spreadsheetTablePastePlugin } from "./spreadsheetTablePaste";
 import { createTableDecorationPlugin, setTableDefaultStyle, tableDefaultStylePluginKey } from "./tableDecorations";
 import { createTextLayoutPlugin, setTextDefaultFirstLineIndent, textDefaultLayoutPluginKey } from "./textLayout";
@@ -67,6 +67,12 @@ type DocumentHeading = {
 };
 
 type PendingClose = { kind: "tab"; tabId: string } | { kind: "app" } | null;
+type ActiveVersionComparison = { initialPath: string | null; versionId: string | null };
+type RestoreDialog =
+  | { kind: "unsaved"; targetCommitId: string; targetTitle: string }
+  | { kind: "confirm"; targetCommitId: string; targetTitle: string }
+  | { kind: "protect"; targetCommitId: string; targetTitle: string; strategy: RestoreStrategy; safetyMessage: string }
+  | null;
 
 type RecentFile = {
   path: string;
@@ -238,6 +244,10 @@ function App() {
   const [customFontTarget, setCustomFontTarget] = useState<AppearanceScope | null>(null);
   const [customFontDraft, setCustomFontDraft] = useState<CustomFontDraft>({ chineseFamily: "", latinFamily: "", weight: 400, baseFont: fontForPreset("elegant") });
   const [activeFeatureId, setActiveFeatureId] = useState<string | null>(null);
+  const [versionStatusRevision, setVersionStatusRevision] = useState(0);
+  const [activeVersionComparison, setActiveVersionComparison] = useState<ActiveVersionComparison | null>(null);
+  const [restoreDialog, setRestoreDialog] = useState<RestoreDialog>(null);
+  const [isRestoringVersion, setIsRestoringVersion] = useState(false);
   const menuListRef = useRef<HTMLElement>(null);
   const tabsRef = useRef(tabs);
   const recentFilesMenuTimerRef = useRef<number | null>(null);
@@ -257,7 +267,9 @@ function App() {
     content: activeDocument.content,
     assetFolder: activeDocument.assetFolder,
     assets: activeDocument.assets,
-  }), [activeDocument.assetFolder, activeDocument.assets, activeDocument.content, activeDocument.path, activeDocument.title]);
+    isDirty: activeDocument.isDirty,
+    versionStatusRevision,
+  }), [activeDocument.assetFolder, activeDocument.assets, activeDocument.content, activeDocument.isDirty, activeDocument.path, activeDocument.title, versionStatusRevision]);
   const effectiveDocumentDefaults = useMemo(() => ({
     font: activeDocument.formatSettings.defaults.font ?? applicationAppearance.font,
     tableStyle: activeDocument.formatSettings.defaults.tableStyle ?? applicationAppearance.tableStyle,
@@ -390,12 +402,21 @@ function App() {
     setTabs((currentTabs) => currentTabs.map((tab) => (
       tab.id === documentId ? { ...tab, initialContent: tab.content } : tab
     )));
+    setActiveVersionComparison(null);
     setActiveTabId(documentId);
+  }, []);
+
+  const openVersionDiff = useCallback((change: VersionChange) => setActiveVersionComparison({ initialPath: change.path, versionId: null }), []);
+  const openVersionHistoryComparison = useCallback((version: VersionRecord) => setActiveVersionComparison({ initialPath: null, versionId: version.id }), []);
+  const closeVersionDiff = useCallback(() => {
+    setActiveVersionComparison(null);
+    setVersionStatusRevision((revision) => revision + 1);
   }, []);
 
   const createNewDocument = useCallback(() => {
     const document = createDocument();
     setTabs((currentTabs) => [...currentTabs, document]);
+    setActiveVersionComparison(null);
     setActiveTabId(document.id);
   }, []);
 
@@ -464,7 +485,7 @@ function App() {
         defaultPath: `${activeDocument.title || text.untitledDocument}.md`,
         filter: { name: text.markdown, extensions: ["md"] },
       });
-      if (!chosenPath) return;
+      if (!chosenPath) return false;
       targetPath = chosenPath.endsWith(".md") ? chosenPath : `${chosenPath}.md`;
     }
     try {
@@ -484,11 +505,86 @@ function App() {
       setTabs((currentTabs) => currentTabs.map((tab) => (
         tab.id === activeDocument.id ? { ...tab, path: targetPath, title, initialContent: tab.content, assetFolder: storedFormat.assetFolder, formatSettings, isDirty: false } : tab
       )));
+      setVersionStatusRevision((revision) => revision + 1);
       rememberRecentFile(targetPath);
+      return true;
+    } catch (error) {
+      window.alert(String(error));
+      return false;
+    }
+  }, [activeDocument, rememberRecentFile, text.markdown, text.saveMarkdownDocument, text.untitledDocument]);
+
+  const reloadActiveDocumentFromDisk = useCallback(async () => {
+    if (!activeDocument.path) throw new Error("当前文稿尚未保存。");
+    const markdown = await platform.files.readMarkdown(activeDocument.path);
+    const assetFolder = findAssetFolder(markdown);
+    const storedFormat = await platform.files.readDocumentFormat(activeDocument.path, assetFolder);
+    const parsedSidecar = parseDocumentSidecar(storedFormat?.content);
+    const assets = collectDocumentImageAssets(markdown, parsedSidecar.sidecar.assets);
+    const formatSettings = parseDocumentFormatSettings(parsedSidecar.sidecar.format);
+    setTabs((currentTabs) => currentTabs.map((tab) => tab.id === activeDocument.id
+      ? { ...tab, content: markdown, initialContent: markdown, assetFolder: storedFormat?.assetFolder ?? assetFolder, document: parsedSidecar.sidecar.document, assets, formatSettings, isDirty: false }
+      : tab));
+    setVersionStatusRevision((revision) => revision + 1);
+  }, [activeDocument.id, activeDocument.path]);
+
+  const planVersionRestore = useCallback(async (targetCommitId: string, targetTitle: string) => {
+    if (!activeDocument.path) return;
+    try {
+      const preflight = await platform.versionControl.getRestorePreflight({
+        documentPath: activeDocument.path,
+        assetFolder: activeDocument.assetFolder,
+        targetCommitId,
+      });
+      if (preflight.hasUnversionedScopeChanges) {
+        setRestoreDialog({
+          kind: "protect",
+          targetCommitId,
+          targetTitle: preflight.targetVersion.message || targetTitle,
+          strategy: "save-current-version-first",
+          safetyMessage: `恢复前保存：准备恢复至“${preflight.targetVersion.message || targetTitle}”`,
+        });
+      } else {
+        setRestoreDialog({ kind: "confirm", targetCommitId, targetTitle: preflight.targetVersion.message || targetTitle });
+      }
     } catch (error) {
       window.alert(String(error));
     }
-  }, [activeDocument, rememberRecentFile, text.markdown, text.saveMarkdownDocument, text.untitledDocument]);
+  }, [activeDocument.assetFolder, activeDocument.path]);
+
+  const requestVersionRestore = useCallback((targetCommitId: string, targetTitle: string) => {
+    if (activeDocument.isDirty) {
+      setRestoreDialog({ kind: "unsaved", targetCommitId, targetTitle });
+      return;
+    }
+    void planVersionRestore(targetCommitId, targetTitle);
+  }, [activeDocument.isDirty, planVersionRestore]);
+
+  const performVersionRestore = useCallback(async () => {
+    if (!restoreDialog || !activeDocument.path || isRestoringVersion) return;
+    setIsRestoringVersion(true);
+    try {
+      const strategy = restoreDialog.kind === "protect" ? restoreDialog.strategy : "discard-current-changes";
+      const safetyVersionMessage = restoreDialog.kind === "protect" && restoreDialog.strategy === "save-current-version-first"
+        ? restoreDialog.safetyMessage
+        : undefined;
+      const result = await platform.versionControl.restoreVersion({
+        documentPath: activeDocument.path,
+        assetFolder: activeDocument.assetFolder,
+        targetCommitId: restoreDialog.targetCommitId,
+        strategy,
+        safetyVersionMessage,
+      });
+      await reloadActiveDocumentFromDisk();
+      setActiveVersionComparison(null);
+      setRestoreDialog(null);
+      window.alert(result.alreadyEquivalent ? text.versionAlreadyEquivalent : text.versionRestored);
+    } catch (error) {
+      window.alert(String(error));
+    } finally {
+      setIsRestoringVersion(false);
+    }
+  }, [activeDocument.assetFolder, activeDocument.path, isRestoringVersion, reloadActiveDocumentFromDisk, restoreDialog, text.versionAlreadyEquivalent, text.versionRestored]);
 
   const handleSharePackage = useCallback(async () => {
     if (!activeDocument.path) {
@@ -721,6 +817,16 @@ function App() {
     <main className="app-shell">
         <header className="app-menubar" onMouseDown={startWindowDragging} onDoubleClick={toggleWindowMaximize}>
           <nav className="app-menu-list" ref={menuListRef} aria-label={text.applicationMenu}>
+            <span className="app-brand-mark" role="img" aria-label="HakurouPaper" title="HakurouPaper">
+              <svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+                <defs>
+                  <filter id="hakurou-brand-mark-alpha">
+                    <feColorMatrix type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 5 -1.5 -1.5 0 -1" />
+                  </filter>
+                </defs>
+                <image href={hakurouAppIcon} width="100" height="100" preserveAspectRatio="xMidYMid meet" filter="url(#hakurou-brand-mark-alpha)" />
+              </svg>
+            </span>
             <div className="app-menu">
               <button type="button" onClick={() => setOpenMenu(openMenu === "file" ? null : "file")}>{text.file}</button>
               {openMenu === "file" && <div className="app-menu-popup">
@@ -835,9 +941,8 @@ function App() {
           </div>
         </div>
 
-        <div className={`workspace-layout ${!activeFeature && sidebarOpen ? "has-sidebar" : ""}`}>
+        <div className={`workspace-layout ${ActiveFeatureWorkspace ? "has-feature-sidebar" : sidebarOpen ? "has-sidebar" : ""}`}>
           <aside className="app-rail" aria-label={text.workspaceNavigation}>
-            <span className="rail-mark" title="HakurouPaper"><img src={hakurouAppIcon} alt="HakurouPaper" /></span>
             <button type="button" className={`rail-button ${!activeFeature && sidebarOpen ? "is-active" : ""}`} onClick={toggleDocumentSidebar} title={text.outline} aria-label={text.outline}><OutlineRailIcon /></button>
             {featureRegistry.sidebarContributions.map((contribution) => (
               (() => {
@@ -846,14 +951,19 @@ function App() {
                   type="button"
                   key={contribution.id}
                   className={`rail-button ${activeFeature?.id === contribution.id ? "is-active" : ""}`}
-                  onClick={() => setActiveFeatureId((current) => current === contribution.id ? null : contribution.id)}
+                  onClick={() => {
+                    setSidebarOpen(true);
+                    setActiveFeatureId((current) => current === contribution.id ? null : contribution.id);
+                  }}
                   title={contribution.label(text)}
                   aria-label={contribution.label(text)}
                 ><FeatureIcon /></button>;
               })()
             ))}
           </aside>
-          {!activeFeature && sidebarOpen && <aside className="document-sidebar" aria-label={text.documentList}>
+          {ActiveFeatureWorkspace ? <aside className="feature-sidebar" aria-label={activeFeature?.label(text)}>
+            <ActiveFeatureWorkspace document={featureDocument} text={text} onSaveDocument={handleSave} onOpenVersionDiff={openVersionDiff} onOpenVersionHistoryComparison={openVersionHistoryComparison} />
+          </aside> : sidebarOpen && <aside className="document-sidebar" aria-label={text.documentList}>
             {documentHeadings.length > 0 && <>
               <div className="sidebar-heading sidebar-outline-heading"><span>{text.outline}</span></div>
               <div className="sidebar-outline-list">
@@ -877,9 +987,7 @@ function App() {
               </div>
             </>}
           </aside>}
-          {ActiveFeatureWorkspace ? <section className="feature-stage" aria-label={activeFeature?.label(text)}>
-            <ActiveFeatureWorkspace document={featureDocument} text={text} />
-          </section> : <section ref={editorStageRef} className="editor-stage" aria-label={text.editingArea} style={documentFontStyle}>
+          <section ref={editorStageRef} className="editor-stage" aria-label={text.editingArea} style={documentFontStyle} hidden={Boolean(activeVersionComparison)}>
               <WritingEditor
                 key={activeDocument.id}
                 documentId={activeDocument.id}
@@ -897,7 +1005,8 @@ function App() {
                 tableStyle={effectiveDocumentDefaults.tableStyle}
                 firstLineIndent={effectiveDocumentDefaults.firstLineIndent}
               />
-          </section>}
+          </section>
+          {activeVersionComparison && <VersionDiffViewer document={featureDocument} initialPath={activeVersionComparison.initialPath} versionId={activeVersionComparison.versionId} text={text} onClose={closeVersionDiff} onRestoreVersion={requestVersionRestore} />}
         </div>
 
         <footer className="statusbar">
@@ -918,6 +1027,50 @@ function App() {
                 setPendingClose(null);
               }}>{text.discardAndClose}</button>
             </div>
+          </section>
+        </div>}
+        {restoreDialog && <div className="close-confirm-backdrop" role="presentation">
+          <section className="close-confirm-dialog restore-version-dialog" role="dialog" aria-modal="true" aria-labelledby="restore-version-title">
+            {restoreDialog.kind === "unsaved" && <>
+              <h2 id="restore-version-title">{text.versionRestoreUnsaved}</h2>
+              <p>{text.versionRestoreDescription(restoreDialog.targetTitle)}</p>
+              <div className="close-confirm-actions">
+                <button type="button" onClick={() => setRestoreDialog(null)}>{text.cancel}</button>
+                <button type="button" className="is-confirm" onClick={() => void (async () => {
+                  const target = restoreDialog;
+                  const saved = await handleSave();
+                  if (saved) {
+                    setRestoreDialog(null);
+                    await planVersionRestore(target.targetCommitId, target.targetTitle);
+                  }
+                })()}>{text.versionSaveDocumentAndContinue}</button>
+              </div>
+            </>}
+            {restoreDialog.kind === "confirm" && <>
+              <h2 id="restore-version-title">{text.versionRestoreTitle}</h2>
+              <p>{text.versionRestoreDescription(restoreDialog.targetTitle)}</p>
+              <div className="close-confirm-actions">
+                <button type="button" disabled={isRestoringVersion} onClick={() => setRestoreDialog(null)}>{text.cancel}</button>
+                <button type="button" className="is-confirm" disabled={isRestoringVersion} onClick={() => void performVersionRestore()}>{isRestoringVersion ? text.versionRestoring : text.versionRestoreThis}</button>
+              </div>
+            </>}
+            {restoreDialog.kind === "protect" && <>
+              <h2 id="restore-version-title">{text.versionRestoreProtectionTitle}</h2>
+              <p>{text.versionRestoreProtectionDescription}</p>
+              <label className="restore-strategy-option">
+                <input type="radio" name="restore-strategy" checked={restoreDialog.strategy === "save-current-version-first"} onChange={() => setRestoreDialog((current) => current?.kind === "protect" ? { ...current, strategy: "save-current-version-first" } : current)} />
+                <span><strong>{text.versionRestoreSaveFirst}</strong><small>{text.versionDescription}</small></span>
+              </label>
+              {restoreDialog.strategy === "save-current-version-first" && <label className="restore-message-field"><span>{text.versionRestoreBeforeMessage}</span><input value={restoreDialog.safetyMessage} maxLength={160} onChange={(event) => setRestoreDialog((current) => current?.kind === "protect" ? { ...current, safetyMessage: event.target.value } : current)} /></label>}
+              <label className="restore-strategy-option is-danger">
+                <input type="radio" name="restore-strategy" checked={restoreDialog.strategy === "discard-current-changes"} onChange={() => setRestoreDialog((current) => current?.kind === "protect" ? { ...current, strategy: "discard-current-changes" } : current)} />
+                <span><strong>{text.versionRestoreDiscard}</strong><small>{text.versionRestoreDiscardWarning}</small></span>
+              </label>
+              <div className="close-confirm-actions">
+                <button type="button" disabled={isRestoringVersion} onClick={() => setRestoreDialog(null)}>{text.cancel}</button>
+                <button type="button" className="is-confirm" disabled={isRestoringVersion || (restoreDialog.strategy === "save-current-version-first" && !restoreDialog.safetyMessage.trim())} onClick={() => void performVersionRestore()}>{isRestoringVersion ? text.versionRestoring : text.versionRestoreContinue}</button>
+              </div>
+            </>}
           </section>
         </div>}
         {customFontTarget && <div className="close-confirm-backdrop font-settings-backdrop" role="presentation">
