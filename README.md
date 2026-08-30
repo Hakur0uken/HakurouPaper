@@ -24,6 +24,8 @@ HakurouPaper 是一款面向长文档、论文和日常写作的本地优先 Mar
 - 从 PowerPoint 粘贴图元时保留原始 EMF，同时用 PNG 预览显示；以后导出 Word 时可继续使用原图元。
 - 通过“文件 > 创建分享包…”将当前文稿与对应资源整理为独立文件夹，方便完整发送给他人。
 - 使用行内或块级 LaTeX 公式；块级公式默认显示右侧编号，可在公式源码编辑中取消编号。
+- 通过“文稿交付”进行稳定的日常 Word 导出：默认按当前文稿样式生成可编辑 DOCX，也可选择自己的 Word 参考模板；公式交付可独立选择 Word 原生或 MathType 可编辑公式。
+- 对期刊、学校或单位的复杂 DOCX 模板，可使用“精确 Word 模板（实验）”。它基于显式映射保留模板结构，不会自动猜测内容位置或样式映射。
 
 ### 文稿属于你
 
@@ -60,6 +62,8 @@ Visit [Releases](https://github.com/Hakur0uken/HakurouPaper/releases) to downloa
 - Paste PowerPoint graphics while keeping the original EMF alongside a PNG preview, ready for future Word export.
 - Use **File > Create Share Package…** to collect the current document and its resources into a self-contained folder that is ready to send.
 - Write inline or display LaTeX equations; display equations show a right-side number by default, which can be disabled in the source editor.
+- Use **Document Delivery** for stable everyday Word export: the default current-document style produces an editable DOCX, or you can choose your own Word reference template. Native Word and editable MathType equation delivery remain independent choices.
+- For complex DOCX templates from journals, schools, or organizations, use **Precise Word Template (Experimental)**. It preserves the template through explicit mappings and never guesses content locations or style mappings.
 
 ### Your documents stay yours
 

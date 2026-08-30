@@ -3,6 +3,28 @@
 This is an isolated .NET 8 experiment. It deliberately leaves the existing
 Pandoc provider untouched.
 
+## Delivery boundary
+
+HakurouPaper has two deliberately different Word delivery paths:
+
+- **General Word Export** is content-driven: Markdown is rendered by Pandoc
+  into an editable DOCX. Its default **Current document style** uses an
+  internally generated reference DOCX with HakurouPaper's compact Word style
+  vocabulary (title, headings, body, quote, caption, code, list and table).
+  A user-selected Word reference document may replace that internal reference.
+  Formula delivery (native Word equations or MathType) remains independent of
+  the layout source.
+- **Precise Word Template (Experimental)** is template-driven: an existing
+  DOCX is analyzed for explicit semantic targets and then locally patched by
+  this deterministic engine. It preserves the template package and makes no
+  automatic content-location or style-mapping guesses.
+
+Pandoc therefore generates the normal editable Word document; the experimental
+engine injects into an explicitly mapped template and validates the resulting
+local DOCX package. The UI may describe a recommended AI/Agent-assisted
+workflow, but this helper does not discover, invoke, or depend on an external
+Agent, Skill, or CLI.
+
 Commands emit JSON on standard output:
 
 ```powershell

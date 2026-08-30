@@ -387,7 +387,16 @@ button { font: inherit; }
 .pandoc-manual-mathtype-confirm:disabled { cursor: wait; border-color: #d8d5ce; color: #a9a49b; background: #eeece7; }
 @keyframes pandoc-export-progress-indeterminate { from { transform: translateX(-120%); } to { transform: translateX(320%); } }
 .pandoc-notice { overflow-wrap: anywhere; margin: 18px 0 0; border-left: 2px solid #8a9d88; padding: 10px 12px; color: #625e56; background: #f0f1ec; font-family: inherit; font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
-.word-template-experiment { margin-top: 18px; border-left: 2px solid #9a7d5d; }
+.pandoc-stable-export { border-left-color: #58755d; }
+.pandoc-layout-options { margin-top: 20px; }
+.word-template-experiment { margin-top: 18px; border-left: 2px solid #9a7d5d; background: #fbfaf7; }
+.word-template-agent-workflow { margin-top: 14px; border-left: 2px solid #b8a778; padding: 8px 10px; color: #666158; background: #f6f3ed; font-size: 12px; line-height: 1.55; }
+.word-template-agent-workflow summary, .word-template-manual-tools > summary { color: #4e4a43; cursor: pointer; font-weight: 600; }
+.word-template-agent-workflow p { margin: 7px 0 0; }
+.word-template-agent-workflow strong { color: #4d664f; }
+.word-template-summary { margin-top: 14px; }
+.word-template-manual-tools { margin-top: 15px; border-top: 1px solid #e4e1da; padding-top: 12px; }
+.word-template-manual-tools[open] > summary { margin-bottom: 12px; }
 .word-template-analysis { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 16px; border-top: 1px solid #e7e4dd; padding-top: 12px; color: #6d675d; font-size: 11px; }
 .word-template-analysis span { white-space: nowrap; }
 .word-template-targets { margin: 12px 0 0 !important; border-left: 2px solid #8a9d88; padding: 7px 9px; background: #f0f1ec; color: #5d685d !important; }

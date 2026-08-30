@@ -16,6 +16,8 @@ type MathTypeState =
   | { kind: "ready"; status: MathTypeStatus }
   | { kind: "unavailable"; message: string };
 
+type WordLayoutSource = "currentStyle" | "referenceTemplate";
+
 const lastWordTemplateStorageKey = "hakurou.paper.last-word-template";
 const lastFormulaModeStorageKey = "hakurou.paper.last-formula-mode";
 const pandocInstallUrl = "https://pandoc.org/installing.html";
@@ -56,6 +58,7 @@ export function PandocWorkspace({ document, text }: FeatureWorkspaceProps) {
   const [pandocState, setPandocState] = useState<PandocState>({ kind: "checking" });
   const [mathTypeState, setMathTypeState] = useState<MathTypeState>({ kind: "checking" });
   const [formulaMode, setFormulaMode] = useState<FormulaExportMode>(getLastFormulaMode);
+  const [layoutSource, setLayoutSource] = useState<WordLayoutSource>("currentStyle");
   const [templatePath, setTemplatePath] = useState<string | null>(null);
   const [lastTemplatePath, setLastTemplatePath] = useState<string | null>(getLastWordTemplate);
   const [isExporting, setIsExporting] = useState(false);
@@ -102,11 +105,19 @@ export function PandocWorkspace({ document, text }: FeatureWorkspaceProps) {
       filter: { name: text.wordTemplate, extensions: ["docx"] },
     });
     if (path) setTemplatePath(path);
+    if (path) setLayoutSource("referenceTemplate");
   }, [text.chooseDocxTemplate, text.wordTemplate]);
 
   const useLastTemplate = useCallback(() => {
-    if (lastTemplatePath) setTemplatePath(lastTemplatePath);
+    if (lastTemplatePath) {
+      setTemplatePath(lastTemplatePath);
+      setLayoutSource("referenceTemplate");
+    }
   }, [lastTemplatePath]);
+
+  const chooseLayoutSource = useCallback((source: WordLayoutSource) => {
+    setLayoutSource(source);
+  }, []);
 
   const chooseFormulaMode = useCallback((mode: FormulaExportMode) => {
     setFormulaMode(mode);
@@ -169,11 +180,11 @@ export function PandocWorkspace({ document, text }: FeatureWorkspaceProps) {
         assetFolder: document.assetFolder,
         assets: document.assets,
         outputPath: target.endsWith(".docx") ? target : `${target}.docx`,
-        referenceDocPath: templatePath,
+        referenceDocPath: layoutSource === "referenceTemplate" ? templatePath : null,
         formulaMode,
         formulaPreviews,
       });
-      if (templatePath) {
+      if (layoutSource === "referenceTemplate" && templatePath) {
         window.localStorage.setItem(lastWordTemplateStorageKey, templatePath);
         setLastTemplatePath(templatePath);
       }
@@ -188,12 +199,14 @@ export function PandocWorkspace({ document, text }: FeatureWorkspaceProps) {
       setIsConfirmingManualMathTypeStep(false);
       setExportProgress(null);
     }
-  }, [checkMathType, document.assetFolder, document.assets, document.content, document.path, document.title, formulaMode, templatePath, text]);
+  }, [checkMathType, document.assetFolder, document.assets, document.content, document.path, document.title, formulaMode, layoutSource, templatePath, text]);
 
   const pandocReady = pandocState.kind === "ready";
   const mathTypeSelected = formulaMode === "mathType" || formulaMode === "mathTypeBatch";
   const mathTypeReady = !mathTypeSelected || mathTypeState.kind === "ready";
-  const exportEnabled = pandocReady && mathTypeReady && Boolean(document.path) && !isExporting;
+  const layoutUsesReference = layoutSource === "referenceTemplate";
+  const exportEnabled = pandocReady && mathTypeReady && Boolean(document.path)
+    && (!layoutUsesReference || Boolean(templatePath)) && !isExporting;
   const manualMathTypeStepNeeded = exportProgress?.phase === "mathtypeManualConvertNeeded"
     || exportProgress?.phase === "mathtypeManualFormatNeeded";
 
@@ -215,21 +228,33 @@ export function PandocWorkspace({ document, text }: FeatureWorkspaceProps) {
       </div>
     </section>
 
-    <section className="pandoc-export-card" aria-label={text.wordDocument}>
+    <section className="pandoc-export-card pandoc-stable-export" aria-label={text.dailyWordExport}>
       <div className="pandoc-export-card-heading">
-        <div><span className="pandoc-docx-icon">W</span><h2>{text.wordDocument}</h2></div>
+        <div><span className="pandoc-docx-icon">W</span><h2>{text.dailyWordExport}</h2></div>
         <span>.docx</span>
       </div>
       <p>{text.docxExportDescription}</p>
       <dl className="pandoc-document-summary">
         <div><dt>{text.exportDocument}</dt><dd>{document.title || text.untitledDocument}</dd></div>
-        <div><dt>{text.wordTemplate}</dt><dd title={templatePath ?? undefined}>{templatePath ?? text.noWordTemplate}</dd></div>
+        <div><dt>{text.layoutSource}</dt><dd>{layoutUsesReference ? text.referenceTemplate : text.currentStyle}</dd></div>
+        {layoutUsesReference && <div><dt>{text.referenceTemplate}</dt><dd title={templatePath ?? undefined}>{templatePath ?? text.referenceTemplateNotSelected}</dd></div>}
       </dl>
-      <div className="pandoc-template-actions">
-        <button type="button" onClick={() => void chooseTemplate()}>{text.chooseWordTemplate}</button>
+      <fieldset className="pandoc-formula-options pandoc-layout-options">
+        <legend>{text.layoutSource}</legend>
+        <label className={layoutSource === "currentStyle" ? "is-selected" : undefined}>
+          <input type="radio" name="word-layout-source" checked={layoutSource === "currentStyle"} onChange={() => chooseLayoutSource("currentStyle")} />
+          <span><strong>{text.currentStyle}</strong><small>{text.currentStyleDescription}</small></span>
+        </label>
+        <label className={layoutUsesReference ? "is-selected" : undefined}>
+          <input type="radio" name="word-layout-source" checked={layoutUsesReference} onChange={() => chooseLayoutSource("referenceTemplate")} />
+          <span><strong>{text.referenceTemplate}</strong><small>{text.referenceTemplateDescription}</small></span>
+        </label>
+      </fieldset>
+      {layoutUsesReference && <div className="pandoc-template-actions">
+        <button type="button" onClick={() => void chooseTemplate()}>{text.chooseReferenceTemplate}</button>
         <button type="button" disabled={!lastTemplatePath} title={lastTemplatePath ?? text.noLastWordTemplate} onClick={useLastTemplate}>{text.useLastWordTemplate}</button>
         {templatePath && <button type="button" onClick={() => setTemplatePath(null)}>{text.clearWordTemplate}</button>}
-      </div>
+      </div>}
       <fieldset className="pandoc-formula-options">
         <legend>{text.formulaExport}</legend>
         <label className={formulaMode === "word" ? "is-selected" : undefined}>
