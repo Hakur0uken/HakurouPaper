@@ -41,17 +41,17 @@ When reviewing changes, paragraphs remain paragraphs, equations remain equations
 
 > **Give documents the same AI collaboration safety net that code already has.**
 
-## Write in Markdown, deliver in Word
+## From writing to Word delivery
 
-Markdown is the foundation for writing, AI collaboration, and version management. Word remains the practical format for final delivery.
+Markdown is the open foundation for writing, AI collaboration, and version management. When it is time to deliver, your manuscript can continue as an editable Word document.
 
-Currently supported:
+Word delivery supports:
 
-* Pandoc Word export
-* Native Word equation / MathType workflows
-* Tables and local images
-* PowerPoint EMF vector graphics preserved
-* Word reference templates and experimental precise-template delivery
+* Editable Word export in HakurouPaper's current document style
+* Word reference templates for fonts, headings, and paragraph styles
+* Editable native Word equations / MathType equations
+* Tables, local images, and PowerPoint EMF vector assets
+* Experimental precise Word-template delivery
 
 ![HakurouPaper Word document delivery](.github/images/word-delivery.png)
 
@@ -67,9 +67,9 @@ Even if you later move to another Markdown-capable tool, you can continue openin
 
 ## Built for future AI / Agent workflows
 
-The formal AI / Agent interface is still in development.
+HakurouPaper is not tied to a particular AI and does not require an embedded Agent. You can keep using the AI or Agent tools you already prefer for writing and collaboration.
 
-The long-term goal is not simply to add a chat box, but to let AI understand and operate on document structure while people collaborate on long-form writing through a traceable, recoverable versioning system.
+Over time, your own Agent will use Hakurou Skills and deterministic document tools for edits, template analysis, export, and validation: the Agent handles understanding and decisions, while Hakurou handles deterministic execution. These interfaces and tools are still being developed and validated.
 
 ## Download
 
@@ -79,8 +79,8 @@ Windows builds are currently available:
 
 ## Roadmap
 
-* AI / Agent document interface
+* Hakurou Skills / Agent-facing document tools
+* More complete precise Word-template and academic delivery
 * Remote Git / GitHub collaboration
-* More complete academic Word delivery
 * Long-document performance improvements
 * Cross-platform support

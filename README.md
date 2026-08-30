@@ -43,17 +43,17 @@ HakurouPaper 把这套能力带到普通文稿中：
 
 > **Give documents the same AI collaboration safety net that code already has.**
 
-## Markdown 写作，Word 交付
+## 从写作到 Word 交付
 
-Markdown 可以作为写作、AI 协作和版本管理的底层，Word 仍然作为现实中的最终交付格式。
+Markdown 是写作、AI 协作和版本管理的开放底层；当需要交付时，文稿可以继续以可编辑 Word 的形式流转。
 
-目前支持：
+Word 交付支持：
 
-* Pandoc Word 导出
-* Word 原生公式 / MathType 工作流
-* 表格与本地图片
-* PowerPoint EMF 矢量图保留
-* Word 参考模板与实验性的精确模板交付
+* 按 HakurouPaper 当前样式导出可编辑 Word
+* 使用 Word 参考模板控制字体、标题和段落样式
+* Word 原生公式 / MathType 可编辑公式
+* 表格、本地图片与 PowerPoint EMF 矢量资源
+* 实验性的精确 Word 模板交付
 
 
 ![HakurouPaper Word 文稿交付](.github/images/word-delivery.png)
@@ -70,9 +70,9 @@ HakurouPaper 基于 Tauri 构建，保持较小的安装体积和较低的硬件
 
 ## 面向 AI / Agent 的未来
 
-正式的 AI / Agent 接口仍在开发中。
+HakurouPaper 不绑定某一种 AI，也不要求你使用内置 Agent。你可以继续使用自己熟悉的 AI 或 Agent 进行写作与协作。
 
-长期目标不是简单增加一个聊天框，而是让 AI 可以直接理解和操作文稿结构，并在可追踪、可恢复的版本体系中与人共同完成长文档写作。
+长期来看，用户自己的 Agent 将通过 Hakurou Skills / 面向 Agent 的确定性文稿工具，完成修改、模板分析、导出和验证：Agent 负责理解与决策，Hakurou 负责确定性执行。相关接口和工具仍在开发与验证中。
 
 ## 下载
 
@@ -82,8 +82,8 @@ HakurouPaper 基于 Tauri 构建，保持较小的安装体积和较低的硬件
 
 ## Roadmap
 
-* AI / Agent 文稿接口
+* Hakurou Skills / 面向 Agent 的文稿工具
+* 精确 Word 模板与学术交付完善
 * Remote Git / GitHub 协作
-* Word 学术交付完善
 * 长文档性能优化
 * 跨平台支持
