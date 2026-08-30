@@ -239,6 +239,61 @@ export type DocxExportInput = {
   formulaPreviews?: FormulaPreviewAsset[];
 };
 
+export type WordTemplatePocSection = {
+  index: number;
+  breakType: string;
+  columns: number;
+  pageWidth: number | null;
+  pageHeight: number | null;
+  margins: { top: number | null; bottom: number | null; left: number | null; right: number | null; gutter: number | null };
+};
+
+export type WordTemplatePocInspection = {
+  templatePath: string;
+  officeImoSectionCount: number;
+  sections: WordTemplatePocSection[];
+  styles: { id: string; name: string | null; type: string | null }[];
+  bookmarks: { name: string; id: string | null }[];
+  contentControls: { tag: string | null; title: string | null; kind: string }[];
+  anchors: { name: string; kind: string; level: string; occurrences: number; isValid: boolean; issue?: string | null }[];
+  headers: { partUri: string; contentType: string }[];
+  footers: { partUri: string; contentType: string }[];
+  logs: string[];
+};
+
+export type WordTemplatePocInspectionResponse = {
+  inspection: WordTemplatePocInspection;
+  reportPath: string;
+};
+
+export type WordTemplatePocExport = {
+  success: boolean;
+  outputPath: string | null;
+  unresolvedTargets: string[];
+  preservation: {
+    changedParts: { path: string }[];
+    addedParts: { path: string }[];
+    removedParts: { path: string }[];
+  } | null;
+  validationErrors: string[];
+  validationReportPath?: string | null;
+  validationReport?: {
+    openXmlValidatorPassed: boolean;
+    relationships: { isComplete: boolean; danglingRelationships: string[] };
+    duplicateIds: { kind: string; value: string; locations: string[] }[];
+    sectionCount: number;
+    columns: number[];
+    sectPrCount: number;
+    unexpectedChangedParts: string[];
+    passed: boolean;
+  } | null;
+  capabilities?: { supported: string[]; preserved: string[]; unsupported: string[]; potentiallyLossy: string[] } | null;
+  gaps?: { code: string; feature: string; detail: string; blocking: boolean }[] | null;
+  anchorIssues?: string[] | null;
+  logs: string[];
+  error?: string | null;
+};
+
 export type ClipboardAssetInput = {
   documentPath: string;
   assetFolder: string | null;
@@ -262,6 +317,8 @@ export interface FileService {
   onDocxExportProgress(listener: (progress: DocxExportProgress) => void): Promise<() => void>;
   confirmManualMathTypeStep(): Promise<void>;
   exportDocx(input: DocxExportInput): Promise<DocxExport>;
+  inspectWordTemplatePoc(templatePath: string): Promise<WordTemplatePocInspectionResponse>;
+  exportWordTemplatePoc(input: { templatePath: string; outputPath: string; documentPath: string; content: string }): Promise<WordTemplatePocExport>;
 }
 
 export interface DialogService {

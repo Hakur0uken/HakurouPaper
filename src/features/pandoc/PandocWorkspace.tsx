@@ -4,6 +4,7 @@ import type { DocxExport, DocxExportProgress, FormulaExportMode, MathTypeStatus,
 import type { UiText } from "../../i18n";
 import type { FeatureWorkspaceProps } from "../registry";
 import { createKaTeXFormulaPreviews, createMathTypeFormulaPayloads } from "../../formulaDelivery";
+import { WordTemplateExperiment } from "./WordTemplateExperiment";
 
 type PandocState =
   | { kind: "checking" }
@@ -265,6 +266,8 @@ export function PandocWorkspace({ document, text }: FeatureWorkspaceProps) {
         <button type="button" className="is-primary" onClick={() => void exportDocx()} disabled={!exportEnabled}>{isExporting ? text.exportingDocx : text.exportDocx}</button>
       </div>
     </section>
+
+    <WordTemplateExperiment document={document} text={text} />
 
     {notice && <pre className="pandoc-notice" role="status">{notice}</pre>}
   </div>;

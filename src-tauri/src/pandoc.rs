@@ -174,7 +174,7 @@ struct MathTypeOleStreamObject {
 /// 1. 随应用分发的 `pandoc/pandoc.exe`（发布包可将 pandoc 目录放在 exe 旁）；
 /// 2. 开发模式下的项目根目录 `pandoc/pandoc.exe`（`target/debug` 向上三级）；
 /// 3. 回退到系统 PATH 中的 `pandoc`。
-fn resolve_pandoc() -> PathBuf {
+pub(crate) fn resolve_pandoc() -> PathBuf {
     let binary = if cfg!(windows) {
         "pandoc.exe"
     } else {

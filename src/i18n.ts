@@ -223,6 +223,20 @@ export type UiText = {
   docxExported: (path: string) => string;
   docxExportedWithPreviewFallback: (path: string, count: number) => string;
   docxExportFailed: string;
+  wordTemplateExperiment: string;
+  wordTemplateExperimentDescription: string;
+  analyzeWordTemplate: string;
+  analyzingWordTemplate: string;
+  chooseTemplateOutput: string;
+  templateOutput: string;
+  templateAnalysisSaved: (path: string) => string;
+  templateTargetsMissing: (targets: string) => string;
+  templateTargetsReady: string;
+  experimentalExport: string;
+  experimentalExporting: string;
+  templateExperimentRequiresSavedDocument: string;
+  templateExperimentExported: (path: string) => string;
+  templateExperimentFailed: string;
   unsavedDocuments: string;
   unsavedDocument: string;
   confirmCloseApplication: string;
@@ -490,6 +504,20 @@ export const uiText: Record<UiLanguage, UiText> = {
     docxExported: (path) => `已导出 Word 文档：\n${path}`,
     docxExportedWithPreviewFallback: (path, count) => `已导出 Word 文档：\n${path}\n\n其中 ${count} 个 EMF 图元已改用 PNG 预览，以保证 Word 兼容性。`,
     docxExportFailed: "无法导出 Word 文档：",
+    wordTemplateExperiment: "精确 Word 模板（实验）",
+    wordTemplateExperimentDescription: "仅验证 Content Control / Bookmark 定点注入与模板 preservation；不会替代现有 Pandoc Word 导出。",
+    analyzeWordTemplate: "分析模板",
+    analyzingWordTemplate: "正在分析模板…",
+    chooseTemplateOutput: "选择输出文件…",
+    templateOutput: "输出文件",
+    templateAnalysisSaved: (path) => `模板分析 JSON 已保存：\n${path}`,
+    templateTargetsMissing: (targets) => `模板缺少必需 target：${targets}`,
+    templateTargetsReady: "HAKUROU_TITLE、HAKUROU_ABSTRACT 和 HAKUROU_BODY 均已找到。",
+    experimentalExport: "实验导出",
+    experimentalExporting: "正在进行实验导出…",
+    templateExperimentRequiresSavedDocument: "请先保存文稿，再进行实验模板导出。",
+    templateExperimentExported: (path) => `实验模板导出完成：\n${path}`,
+    templateExperimentFailed: "实验模板导出失败：",
     unsavedDocuments: "存在未保存文稿",
     unsavedDocument: "文稿尚未保存",
     confirmCloseApplication: "存在未保存的修改。确定不保存并关闭 HakurouPaper 吗？",
@@ -755,6 +783,20 @@ export const uiText: Record<UiLanguage, UiText> = {
     docxExported: (path) => `Word document exported:\n${path}`,
     docxExportedWithPreviewFallback: (path, count) => `Word document exported:\n${path}\n\n${count} EMF graphic(s) used PNG previews for Word compatibility.`,
     docxExportFailed: "Could not export the Word document:",
+    wordTemplateExperiment: "Precise Word Template (Experimental)",
+    wordTemplateExperimentDescription: "Validates deterministic Content Control / Bookmark insertion and template preservation only; it does not replace the Pandoc export.",
+    analyzeWordTemplate: "Analyze template",
+    analyzingWordTemplate: "Analyzing template…",
+    chooseTemplateOutput: "Choose output file…",
+    templateOutput: "Output file",
+    templateAnalysisSaved: (path) => `Template analysis JSON saved:\n${path}`,
+    templateTargetsMissing: (targets) => `The template is missing required target(s): ${targets}`,
+    templateTargetsReady: "HAKUROU_TITLE, HAKUROU_ABSTRACT, and HAKUROU_BODY were found.",
+    experimentalExport: "Experimental export",
+    experimentalExporting: "Running experimental export…",
+    templateExperimentRequiresSavedDocument: "Save the document before experimental template export.",
+    templateExperimentExported: (path) => `Experimental template export completed:\n${path}`,
+    templateExperimentFailed: "Experimental template export failed:",
     unsavedDocuments: "Unsaved documents",
     unsavedDocument: "Document not saved",
     confirmCloseApplication: "There are unsaved changes. Close HakurouPaper without saving them?",
