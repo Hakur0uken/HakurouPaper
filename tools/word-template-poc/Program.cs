@@ -14,7 +14,7 @@ var serializerOptions = new JsonSerializerOptions
 
 try
 {
-    if (args.Length == 0) throw new ArgumentException("Expected inspect-template, parse-markdown, render-template, roundtrip-template, validate-with-word, run-regression, prepare-test-template, prepare-range-mapped-template, or prepare-bookmark-test-template.");
+    if (args.Length == 0) throw new ArgumentException("Expected inspect-template, parse-markdown, render-template, roundtrip-template, validate-with-word, run-regression, prepare-test-template, prepare-range-mapped-template, prepare-section-safe-mapped-template, or prepare-bookmark-test-template.");
     object result = args[0] switch
     {
         "inspect-template" => InspectTemplate(args[1..]),
@@ -25,6 +25,7 @@ try
         "run-regression" => RunRegression(args[1..]),
         "prepare-test-template" => PrepareTestTemplate(args[1..]),
         "prepare-range-mapped-template" => PrepareRangeMappedTemplate(args[1..]),
+        "prepare-section-safe-mapped-template" => PrepareSectionSafeMappedTemplate(args[1..]),
         "prepare-bookmark-test-template" => PrepareBookmarkTestTemplate(args[1..]),
         _ => throw new ArgumentException($"Unknown command: {args[0]}"),
     };
@@ -116,4 +117,34 @@ object PrepareRangeMappedTemplate(string[] commandArgs)
             positions[3],
             positions[4]));
     return new { success = true, outputPath = Path.GetFullPath(commandArgs[1]), mapping = positions };
+}
+
+object PrepareSectionSafeMappedTemplate(string[] commandArgs)
+{
+    if (commandArgs.Length is < 8 or > 9)
+        throw new ArgumentException("Usage: prepare-section-safe-mapped-template <source.docx> <output.docx> <title-start> <title-end> <abstract-start> <abstract-end> <body-start> <body-end> [<clear-start>:<clear-end>[,...]]");
+
+    var positions = commandArgs[2..8]
+        .Select(value => int.TryParse(value, out var position)
+            ? position
+            : throw new ArgumentException($"Mapping position must be an integer: {value}"))
+        .ToArray();
+    var clearRanges = commandArgs.Length == 9
+        ? commandArgs[8]
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(range => range.Split(':', StringSplitOptions.TrimEntries))
+            .Select(parts => parts.Length == 2 && int.TryParse(parts[0], out var start) && int.TryParse(parts[1], out var end)
+                ? new DirectBodyRange(start, end)
+                : throw new ArgumentException($"Clear range must use start:end syntax: {string.Join(':', parts)}"))
+            .ToArray()
+        : Array.Empty<DirectBodyRange>();
+    FixtureBuilder.CreateSectionSafeMappedCopy(
+        commandArgs[0],
+        commandArgs[1],
+        new SectionSafeRangeMapping(
+            new DirectBodyRange(positions[0], positions[1]),
+            new DirectBodyRange(positions[2], positions[3]),
+            new DirectBodyRange(positions[4], positions[5]),
+            clearRanges));
+    return new { success = true, outputPath = Path.GetFullPath(commandArgs[1]), mapping = positions, clearRanges };
 }

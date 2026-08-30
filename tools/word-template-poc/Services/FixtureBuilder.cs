@@ -36,21 +36,44 @@ public static class FixtureBuilder
         using var document = WordprocessingDocument.Open(destination, true);
         var body = document.MainDocumentPart?.Document?.Body
             ?? throw new InvalidDataException("The template has no main document body.");
-        var existingTargets = body.Descendants<Tag>()
-            .Select(tag => tag.Val?.Value)
-            .Concat(body.Descendants<BookmarkStart>().Select(bookmark => bookmark.Name?.Value))
-            .Where(name => name is "HAKUROU_TITLE" or "HAKUROU_ABSTRACT" or "HAKUROU_BODY")
-            .ToArray();
-        if (existingTargets.Length > 0)
-            throw new InvalidDataException($"The template already contains Hakurou mapping target(s): {string.Join(", ", existingTargets)}. Render against its existing anchors instead of range mapping it again.");
+        EnsureNoHakurouTargets(body);
         var elements = body.ChildElements
             .Where(element => element is not SectionProperties)
             .ToArray();
 
         ValidateExplicitMapping(elements, mapping);
-        WrapRange(elements, mapping.BodyStart, elements.Length - 1, "HAKUROU_BODY", "Body");
-        WrapRange(elements, mapping.AbstractStart, mapping.AbstractEnd, "HAKUROU_ABSTRACT", "Abstract");
-        WrapRange(elements, mapping.TitleStart, mapping.TitleEnd, "HAKUROU_TITLE", "Title");
+        WrapRange(elements, new DirectBodyRange(mapping.BodyStart, elements.Length - 1), "HAKUROU_BODY", "Body");
+        WrapRange(elements, new DirectBodyRange(mapping.AbstractStart, mapping.AbstractEnd), "HAKUROU_ABSTRACT", "Abstract");
+        WrapRange(elements, new DirectBodyRange(mapping.TitleStart, mapping.TitleEnd), "HAKUROU_TITLE", "Title");
+        document.MainDocumentPart!.Document!.Save();
+    }
+
+    /// <summary>
+    /// Maps discrete title, abstract, and body sample ranges while clearing
+    /// specified residual sample ranges. Cleared paragraphs retain cloned
+    /// paragraph properties so continuous section boundaries remain intact.
+    /// </summary>
+    public static void CreateSectionSafeMappedCopy(string sourcePath, string outputPath, SectionSafeRangeMapping mapping)
+    {
+        var source = Path.GetFullPath(sourcePath);
+        var destination = Path.GetFullPath(outputPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(destination) ?? throw new InvalidOperationException("Output path has no parent directory."));
+        File.Copy(source, destination, true);
+
+        using var document = WordprocessingDocument.Open(destination, true);
+        var body = document.MainDocumentPart?.Document?.Body
+            ?? throw new InvalidDataException("The template has no main document body.");
+        EnsureNoHakurouTargets(body);
+        var elements = body.ChildElements
+            .Where(element => element is not SectionProperties)
+            .ToArray();
+        ValidateSectionSafeMapping(elements, mapping);
+
+        foreach (var range in mapping.ClearRanges.OrderByDescending(range => range.Start))
+            ClearRange(elements, range);
+        WrapRange(elements, mapping.Body, "HAKUROU_BODY", "Body");
+        WrapRange(elements, mapping.Abstract, "HAKUROU_ABSTRACT", "Abstract");
+        WrapRange(elements, mapping.Title, "HAKUROU_TITLE", "Title");
         document.MainDocumentPart!.Document!.Save();
     }
 
@@ -109,9 +132,60 @@ public static class FixtureBuilder
             throw new InvalidDataException("An explicit mapping range exceeds the template body's top-level content.");
     }
 
-    private static void WrapRange(IReadOnlyList<OpenXmlElement> elements, int start, int end, string tag, string title)
+    private static void EnsureNoHakurouTargets(Body body)
     {
-        var first = elements[start];
+        var existingTargets = body.Descendants<Tag>()
+            .Select(tag => tag.Val?.Value)
+            .Concat(body.Descendants<BookmarkStart>().Select(bookmark => bookmark.Name?.Value))
+            .Where(name => name is "HAKUROU_TITLE" or "HAKUROU_ABSTRACT" or "HAKUROU_BODY")
+            .ToArray();
+        if (existingTargets.Length > 0)
+            throw new InvalidDataException($"The template already contains Hakurou mapping target(s): {string.Join(", ", existingTargets)}. Render against its existing anchors instead of range mapping it again.");
+    }
+
+    private static void ValidateSectionSafeMapping(IReadOnlyList<OpenXmlElement> elements, SectionSafeRangeMapping mapping)
+    {
+        var ranges = new[] { mapping.Title, mapping.Abstract, mapping.Body }
+            .Concat(mapping.ClearRanges)
+            .ToArray();
+        foreach (var range in ranges)
+        {
+            if (range.Start < 0 || range.End < range.Start || range.End >= elements.Count)
+                throw new InvalidDataException("A mapping range exceeds the template body's top-level content.");
+        }
+        for (var left = 0; left < ranges.Length; left++)
+        for (var right = left + 1; right < ranges.Length; right++)
+            if (ranges[left].Start <= ranges[right].End && ranges[right].Start <= ranges[left].End)
+                throw new InvalidDataException("Title, abstract, body, and clear ranges must not overlap.");
+
+        foreach (var range in new[] { mapping.Title, mapping.Abstract, mapping.Body })
+        {
+            if (Enumerable.Range(range.Start, range.End - range.Start + 1)
+                .Any(index => elements[index] is Paragraph paragraph && paragraph.ParagraphProperties?.SectionProperties is not null))
+                throw new InvalidDataException("A mapped replacement range contains a section boundary. Keep that paragraph in a clear range so its continuous section settings are preserved.");
+        }
+    }
+
+    private static void ClearRange(IReadOnlyList<OpenXmlElement> elements, DirectBodyRange range)
+    {
+        for (var index = range.Start; index <= range.End; index++)
+        {
+            if (elements[index] is Paragraph paragraph)
+            {
+                var properties = paragraph.ParagraphProperties?.CloneNode(true) as ParagraphProperties;
+                paragraph.RemoveAllChildren();
+                if (properties is not null) paragraph.AppendChild(properties);
+            }
+            else
+            {
+                elements[index].Remove();
+            }
+        }
+    }
+
+    private static void WrapRange(IReadOnlyList<OpenXmlElement> elements, DirectBodyRange range, string tag, string title)
+    {
+        var first = elements[range.Start];
         var content = new SdtContentBlock();
         var control = new SdtBlock(
             new SdtProperties(
@@ -121,7 +195,7 @@ public static class FixtureBuilder
             content);
         first.InsertBeforeSelf(control);
 
-        for (var index = start; index <= end; index++)
+        for (var index = range.Start; index <= range.End; index++)
         {
             var element = elements[index];
             element.Remove();
@@ -395,3 +469,11 @@ public sealed record ExplicitRangeMapping(
     int AbstractStart,
     int AbstractEnd,
     int BodyStart);
+
+public sealed record DirectBodyRange(int Start, int End);
+
+public sealed record SectionSafeRangeMapping(
+    DirectBodyRange Title,
+    DirectBodyRange Abstract,
+    DirectBodyRange Body,
+    IReadOnlyList<DirectBodyRange> ClearRanges);

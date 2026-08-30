@@ -31,6 +31,7 @@ Commands emit JSON on standard output:
 dotnet run --project .\Hakurou.WordTemplatePoc.csproj -- inspect-template template.docx --report template-analysis.json
 dotnet run --project .\Hakurou.WordTemplatePoc.csproj -- roundtrip-template template.docx roundtrip.docx
 dotnet run --project .\Hakurou.WordTemplatePoc.csproj -- prepare-range-mapped-template source.docx mapped-working-copy.docx 0 2 3 4 5
+dotnet run --project .\Hakurou.WordTemplatePoc.csproj -- prepare-section-safe-mapped-template source.docx mapped-working-copy.docx 0 0 14 15 16 86 1:13,87:88
 Get-Content request.json | dotnet run --project .\Hakurou.WordTemplatePoc.csproj -- render-template
 dotnet run --project .\Hakurou.WordTemplatePoc.csproj -- run-regression ..\..\pandoc\pandoc.exe ..\..\test\word-template-poc\multi-resource.md $env:TEMP\hakurou-word-template-regression
 # Developer-only: opens a generated file and SaveAs2 copies it through Word.
@@ -49,6 +50,13 @@ are approved top-level `w:body` positions (title start/end, abstract start/end,
 and body start), excluding the final body `w:sectPr`. It copies the source and
 wraps those explicit ranges in the three deterministic content controls; it
 does not identify ranges from text, styles, OLE objects, or ordinary bookmarks.
+
+`prepare-section-safe-mapped-template` is the developer-only path for a
+sample-filled template whose reusable layout contains continuous section
+boundaries. It maps explicit title, abstract, and body ranges, then clears
+other explicit sample ranges while retaining paragraph properties (and
+therefore section boundaries) in cleared paragraphs. It refuses to replace a
+range containing a section boundary.
 
 OfficeIMO is used to prove that the template can be loaded and to run the
 explicit save round-trip experiment. Open XML SDK performs the package
