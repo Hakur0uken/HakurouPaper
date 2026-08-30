@@ -23,8 +23,11 @@ dist-ssr
 *.sln
 *.sw?
 
-# Private project notes: retained locally and never published.
-docs/*.md
+# Local writing material, reference files, and private project notes are never
+# part of the application source or release history.
+/assets/
+/docs/
+/others/
 
 # Local tooling: Pandoc binary kept locally for the DOCX export feature.
 # Keep this anchored: the application source lives in src/features/pandoc/.
