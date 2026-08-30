@@ -1,20 +1,40 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::Serialize;
 use std::{
+    ffi::OsStr,
     fs::OpenOptions,
     io::{self, BufWriter, Write},
     path::{Path, PathBuf},
+    process::Command,
     sync::atomic::{AtomicU64, Ordering},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::Manager;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
+
 mod git;
 mod mathtype;
 mod pandoc;
+mod word_template_poc;
 
 static IMAGE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static ATOMIC_WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(windows)]
+pub(crate) fn hidden_process_command(program: &OsStr) -> Command {
+    let mut command = Command::new(program);
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
+#[cfg(not(windows))]
+pub(crate) fn hidden_process_command(program: &OsStr) -> Command {
+    Command::new(program)
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -809,6 +829,8 @@ pub fn run() {
             git::restore_version,
             pandoc::inspect_pandoc,
             pandoc::export_docx,
+            word_template_poc::inspect_word_template,
+            word_template_poc::export_word_template_poc,
             close_application
         ])
         .run(tauri::generate_context!())

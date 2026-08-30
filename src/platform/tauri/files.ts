@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { DocxExport, DocxExportProgress, FileService, MathTypeStatus, PandocStatus, SharePackage, StoredDocumentFormat } from "../types";
+import type { DocxExport, DocxExportProgress, FileService, MathTypeStatus, PandocStatus, SharePackage, StoredDocumentFormat, WordTemplatePocExport, WordTemplatePocInspectionResponse } from "../types";
 
 export const tauriFiles: FileService = {
   readMarkdown(path) {
@@ -46,6 +46,17 @@ export const tauriFiles: FileService = {
       referenceDocPath: input.referenceDocPath,
       formulaMode: input.formulaMode,
       formulaPreviews: input.formulaPreviews,
+    });
+  },
+  inspectWordTemplatePoc(templatePath) {
+    return invoke<WordTemplatePocInspectionResponse>("inspect_word_template", { templatePath });
+  },
+  exportWordTemplatePoc(input) {
+    return invoke<WordTemplatePocExport>("export_word_template_poc", {
+      templatePath: input.templatePath,
+      outputPath: input.outputPath,
+      documentPath: input.documentPath,
+      content: input.content,
     });
   },
 };

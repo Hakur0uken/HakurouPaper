@@ -174,7 +174,7 @@ struct MathTypeOleStreamObject {
 /// 1. 随应用分发的 `pandoc/pandoc.exe`（发布包可将 pandoc 目录放在 exe 旁）；
 /// 2. 开发模式下的项目根目录 `pandoc/pandoc.exe`（`target/debug` 向上三级）；
 /// 3. 回退到系统 PATH 中的 `pandoc`。
-fn resolve_pandoc() -> PathBuf {
+pub(crate) fn resolve_pandoc() -> PathBuf {
     let binary = if cfg!(windows) {
         "pandoc.exe"
     } else {
@@ -628,6 +628,58 @@ fn summarize_pandoc_output(output: Output) -> String {
     } else {
         detail.chars().take(3000).collect()
     }
+}
+
+/// Builds the internal reference document for the stable “current document
+/// style” Word export.  It intentionally models a compact visual vocabulary
+/// (body, title, three heading levels, quote, code, caption, tables and list
+/// paragraphs) instead of attempting to translate the application's CSS.
+/// Pandoc remains the content-to-DOCX generator; this package only supplies
+/// sensible, editable Word semantic styles.
+fn create_hakurou_style_reference(stage_dir: &Path) -> Result<PathBuf, String> {
+    let path = stage_dir.join("hakurou-current-style-reference.docx");
+    let file =
+        File::create(&path).map_err(|error| format!("无法创建当前样式 Word 参考文档：{error}"))?;
+    let mut writer = ZipWriter::new(file);
+    let options = FileOptions::default();
+    let entries = [
+        (
+            "[Content_Types].xml",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/></Types>"#,
+        ),
+        (
+            "_rels/.rels",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#,
+        ),
+        (
+            "word/_rels/document.xml.rels",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/></Relationships>"#,
+        ),
+        (
+            "word/document.xml",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="Normal"/></w:pPr><w:r><w:t>HakurouPaper reference</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/><w:cols w:space="720"/><w:docGrid w:linePitch="360"/></w:sectPr></w:body></w:document>"#,
+        ),
+        (
+            "word/settings.xml",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:zoom w:percent="100"/><w:defaultTabStop w:val="720"/></w:settings>"#,
+        ),
+        (
+            "word/styles.xml",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Aptos" w:hAnsi="Aptos" w:eastAsia="Microsoft YaHei"/><w:sz w:val="22"/><w:lang w:val="en-US" w:eastAsia="zh-CN"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="160" w:line="360" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/><w:pPr><w:spacing w:after="160" w:line="360" w:lineRule="auto"/></w:pPr></w:style><w:style w:type="paragraph" w:styleId="BodyText"><w:name w:val="Body Text"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:spacing w:after="360"/><w:keepNext/></w:pPr><w:rPr><w:b/><w:color w:val="31503B"/><w:sz w:val="36"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="Heading 1"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/><w:keepLines/><w:spacing w:before="360" w:after="180"/><w:outlineLvl w:val="0"/></w:pPr><w:rPr><w:b/><w:color w:val="31503B"/><w:sz w:val="32"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="Heading 2"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/><w:keepLines/><w:spacing w:before="300" w:after="150"/><w:outlineLvl w:val="1"/></w:pPr><w:rPr><w:b/><w:color w:val="3D5747"/><w:sz w:val="28"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="Heading 3"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/><w:keepLines/><w:spacing w:before="240" w:after="120"/><w:outlineLvl w:val="2"/></w:pPr><w:rPr><w:b/><w:color w:val="4E6A56"/><w:sz w:val="25"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="BlockText"><w:name w:val="Block Text"/><w:basedOn w:val="Normal"/><w:pPr><w:ind w:left="480"/><w:spacing w:before="120" w:after="120"/></w:pPr><w:rPr><w:color w:val="635F57"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Caption"><w:name w:val="Caption"/><w:basedOn w:val="Normal"/><w:pPr><w:jc w:val="center"/><w:spacing w:before="80" w:after="180"/></w:pPr><w:rPr><w:i/><w:color w:val="6D675D"/><w:sz w:val="20"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="ImageCaption"><w:name w:val="Image Caption"/><w:basedOn w:val="Caption"/><w:next w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="Figure"><w:name w:val="Figure"/><w:basedOn w:val="Caption"/><w:next w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="SourceCode"><w:name w:val="Source Code"/><w:basedOn w:val="Normal"/><w:pPr><w:shd w:val="clear" w:fill="EEECE7"/><w:spacing w:before="140" w:after="140"/></w:pPr><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:eastAsia="Microsoft YaHei"/><w:sz w:val="20"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="ListParagraph"><w:name w:val="List Paragraph"/><w:basedOn w:val="Normal"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:style><w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/><w:qFormat/><w:tblPr><w:tblBorders><w:top w:val="single" w:sz="4" w:color="D8D5CE"/><w:left w:val="single" w:sz="4" w:color="D8D5CE"/><w:bottom w:val="single" w:sz="4" w:color="D8D5CE"/><w:right w:val="single" w:sz="4" w:color="D8D5CE"/><w:insideH w:val="single" w:sz="4" w:color="D8D5CE"/><w:insideV w:val="single" w:sz="4" w:color="D8D5CE"/></w:tblBorders><w:tblCellMar><w:top w:w="90" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="90" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style><w:style w:type="table" w:styleId="Table"><w:name w:val="Table"/><w:basedOn w:val="TableNormal"/><w:qFormat/></w:style></w:styles>"#,
+        ),
+    ];
+    for (name, xml) in entries {
+        writer
+            .start_file(name, options)
+            .map_err(|error| format!("无法写入当前样式 Word 参考文档：{error}"))?;
+        writer
+            .write_all(xml.as_bytes())
+            .map_err(|error| format!("无法写入当前样式 Word 参考文档：{error}"))?;
+    }
+    writer
+        .finish()
+        .map_err(|error| format!("无法完成当前样式 Word 参考文档：{error}"))?;
+    Ok(path)
 }
 
 fn run_pandoc(
@@ -1134,6 +1186,18 @@ fn export_docx_impl(
         .unwrap_or_else(|| output_path.clone());
 
     let result = (|| -> Result<DocxExport, String> {
+        // A normal Word export is never intentionally "unstyled".  When the
+        // user has not supplied a reference DOCX, generate the small internal
+        // HakurouPaper style package in this private staging directory and
+        // pass it through Pandoc's existing reference-doc pathway.
+        let current_style_reference = if reference_doc_path.is_none() {
+            Some(create_hakurou_style_reference(&stage_dir)?)
+        } else {
+            None
+        };
+        let effective_reference_doc_path = reference_doc_path
+            .as_deref()
+            .or(current_style_reference.as_deref());
         let math_type_formulas = if matches!(formula_mode, FormulaExportMode::MathType) {
             Some(prepare_mathtype_formulas(
                 formula_previews
@@ -1190,7 +1254,7 @@ fn export_docx_impl(
         match run_pandoc(
             &stage_dir,
             &delivery_docx,
-            reference_doc_path.as_deref(),
+            effective_reference_doc_path,
             formula_mode,
         ) {
             Ok(()) => {
@@ -1204,7 +1268,7 @@ fn export_docx_impl(
                     math_type_formulas.as_deref(),
                     math_type_cache_dir.as_deref(),
                     &stage_dir,
-                    reference_doc_path.as_deref(),
+                    effective_reference_doc_path,
                 )?;
                 if delivery_docx != output_path {
                     std::fs::copy(&delivery_docx, &output_path).map_err(|error| {
@@ -1223,7 +1287,7 @@ fn export_docx_impl(
                 let _ = std::fs::remove_file(&delivery_docx);
                 std::fs::write(&stage_markdown, &content)
                     .map_err(|error| format!("无法准备 PNG 回退导出：{error}"))?;
-                run_pandoc(&stage_dir, &delivery_docx, reference_doc_path.as_deref(), formula_mode).map_err(|preview_error| {
+                run_pandoc(&stage_dir, &delivery_docx, effective_reference_doc_path, formula_mode).map_err(|preview_error| {
                     format!("使用 EMF 原图元导出失败：{emf_error}\n\n使用 PNG 预览重试仍失败：{preview_error}")
                 })?;
                 if let Some(labels) = &display_equation_labels {
@@ -1236,7 +1300,7 @@ fn export_docx_impl(
                     math_type_formulas.as_deref(),
                     math_type_cache_dir.as_deref(),
                     &stage_dir,
-                    reference_doc_path.as_deref(),
+                    effective_reference_doc_path,
                 )?;
                 if delivery_docx != output_path {
                     std::fs::copy(&delivery_docx, &output_path).map_err(|error| {
@@ -1265,6 +1329,114 @@ fn export_docx_impl(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn current_style_reference_is_a_complete_editable_docx_package() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after the Unix epoch")
+            .as_nanos();
+        let stage = std::env::temp_dir().join(format!(
+            "hakurou-current-style-reference-test-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&stage).expect("stage directory should be created");
+
+        let reference = create_hakurou_style_reference(&stage)
+            .expect("current-style reference document should be created");
+        let source = File::open(&reference).expect("reference document should exist");
+        let mut archive = ZipArchive::new(source).expect("reference document should be a ZIP");
+        for entry in [
+            "[Content_Types].xml",
+            "_rels/.rels",
+            "word/document.xml",
+            "word/_rels/document.xml.rels",
+            "word/settings.xml",
+            "word/styles.xml",
+        ] {
+            assert!(
+                archive.by_name(entry).is_ok(),
+                "missing package part: {entry}"
+            );
+        }
+        let mut styles = String::new();
+        archive
+            .by_name("word/styles.xml")
+            .expect("styles should be present")
+            .read_to_string(&mut styles)
+            .expect("styles should be readable");
+        for style in [
+            "BodyText",
+            "Title",
+            "Heading1",
+            "Heading2",
+            "Heading3",
+            "BlockText",
+            "Caption",
+            "ImageCaption",
+            "Figure",
+            "SourceCode",
+            "ListParagraph",
+            "TableNormal",
+            "Table",
+        ] {
+            assert!(
+                styles.contains(&format!("w:styleId=\"{style}\"")),
+                "missing semantic style: {style}"
+            );
+        }
+        let mut document = String::new();
+        archive
+            .by_name("word/document.xml")
+            .expect("document should be present")
+            .read_to_string(&mut document)
+            .expect("document should be readable");
+        assert!(document.contains("<w:pgSz w:w=\"11906\" w:h=\"16838\"/>"));
+        assert!(document.contains("<w:pgMar w:top=\"1440\""));
+
+        let _ = std::fs::remove_dir_all(&stage);
+    }
+
+    #[test]
+    fn current_style_reference_runs_through_the_existing_pandoc_path_when_available() {
+        // Repository tests can run without a bundled Pandoc binary. Release
+        // validation prepends the bundled binary to PATH, which exercises the
+        // same `run_pandoc` path used by ordinary exports.
+        if pandoc_version().is_err() {
+            return;
+        }
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after the Unix epoch")
+            .as_nanos();
+        let stage = std::env::temp_dir().join(format!(
+            "hakurou-current-style-pandoc-test-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&stage).expect("stage directory should be created");
+        std::fs::write(
+            stage.join("document.md"),
+            "# Current style\n\nAn editable body paragraph.\n",
+        )
+        .expect("test Markdown should be written");
+        std::fs::write(
+            stage.join("equation-layout.lua"),
+            WORD_EQUATION_LAYOUT_FILTER,
+        )
+        .expect("Word equation filter should be written");
+        let reference = create_hakurou_style_reference(&stage)
+            .expect("current-style reference document should be created");
+        let output = stage.join("export.docx");
+
+        run_pandoc(&stage, &output, Some(&reference), FormulaExportMode::Word)
+            .expect("Pandoc should accept the current-style reference document");
+        let source = File::open(&output).expect("Pandoc output should exist");
+        let mut archive = ZipArchive::new(source).expect("Pandoc output should be a ZIP");
+        assert!(archive.by_name("word/document.xml").is_ok());
+        assert!(archive.by_name("word/styles.xml").is_ok());
+
+        let _ = std::fs::remove_dir_all(&stage);
+    }
 
     #[test]
     fn emf_assets_replace_only_the_preview_in_the_export_copy() {

@@ -181,7 +181,15 @@ export type UiText = {
   checkPandoc: string;
   downloadPandoc: string;
   wordDocument: string;
+  dailyWordExport: string;
   wordTemplate: string;
+  layoutSource: string;
+  currentStyle: string;
+  currentStyleDescription: string;
+  referenceTemplate: string;
+  referenceTemplateDescription: string;
+  referenceTemplateNotSelected: string;
+  chooseReferenceTemplate: string;
   formulaExport: string;
   wordNativeFormulas: string;
   wordNativeFormulasDescription: string;
@@ -223,6 +231,41 @@ export type UiText = {
   docxExported: (path: string) => string;
   docxExportedWithPreviewFallback: (path: string, count: number) => string;
   docxExportFailed: string;
+  wordTemplateExperiment: string;
+  wordTemplateExperimentDescription: string;
+  experimentalLabel: string;
+  viewRecommendedWorkflow: string;
+  recommendedForYourAgent: string;
+  agentWorkflowDescription: string;
+  agentInterfaceComingSoon: string;
+  advancedManualTools: string;
+  templateLabel: string;
+  templateNotSelected: string;
+  mappingStatus: string;
+  templateMappingNotAnalyzed: string;
+  templateMappingNeedsMapping: string;
+  templateMappingReady: string;
+  templateMappingIssues: string;
+  capabilityStatus: string;
+  templateSections: string;
+  templateColumns: string;
+  templateStyles: string;
+  templateBookmarks: string;
+  templateContentControls: string;
+  templateAnchors: string;
+  advancedLogs: string;
+  analyzeWordTemplate: string;
+  analyzingWordTemplate: string;
+  chooseTemplateOutput: string;
+  templateOutput: string;
+  templateAnalysisSaved: (path: string) => string;
+  templateTargetsMissing: (targets: string) => string;
+  templateTargetsReady: string;
+  experimentalExport: string;
+  experimentalExporting: string;
+  templateExperimentRequiresSavedDocument: string;
+  templateExperimentExported: (path: string) => string;
+  templateExperimentFailed: string;
   unsavedDocuments: string;
   unsavedDocument: string;
   confirmCloseApplication: string;
@@ -344,7 +387,7 @@ export const uiText: Record<UiLanguage, UiText> = {
     selectedCount: (count) => `· 已选 ${count} 字`,
     documentStats: (words, characters) => `${words} 字 · ${characters} 字符`,
     documentDelivery: "文稿交付",
-    documentDeliveryDescription: "通过 Pandoc 生成交付用 Word 文档；排版由所选 Word 模板决定，不映射编辑器展示设置。",
+    documentDeliveryDescription: "为日常交付生成可继续编辑的 Word，或在需要时使用复杂模板的精确导出能力。",
     versionManagement: "版本管理",
     versionManagementDescription: "在本机记录文稿版本，可随时比较或恢复历史内容。",
     versionRequiresSavedDocument: "请先保存文稿，再启用版本管理。",
@@ -446,10 +489,18 @@ export const uiText: Record<UiLanguage, UiText> = {
     checkPandoc: "重新检测",
     downloadPandoc: "下载 Pandoc",
     wordDocument: "Word 文档",
+    dailyWordExport: "日常 Word 导出",
     wordTemplate: "Word 模板",
+    layoutSource: "版式来源",
+    currentStyle: "按当前样式",
+    currentStyleDescription: "无需 Word 模板，按照 HakurouPaper 当前文稿的视觉体系生成可继续编辑的 Word。",
+    referenceTemplate: "使用 Word 参考模板",
+    referenceTemplateDescription: "使用所选 Word 文件中的字体、标题、段落等样式作为导出参考。",
+    referenceTemplateNotSelected: "尚未选择",
+    chooseReferenceTemplate: "选择 Word 参考模板…",
     formulaExport: "公式交付",
     wordNativeFormulas: "Word 原生公式",
-    wordNativeFormulasDescription: "按所选 Word 模板生成原生公式；公式字体与样式完全由模板决定。",
+    wordNativeFormulasDescription: "生成可编辑的 Word 原生公式；与版式来源独立选择。",
     mathTypeFormulas: "MathType 可编辑公式",
     mathTypeFormulasDescription: "由 MathType 官方插件转换公式。转换时会打开 Word，需要等待一段时间。",
     mathTypeChecking: "正在检测 MathType 环境…",
@@ -463,9 +514,9 @@ export const uiText: Record<UiLanguage, UiText> = {
     clearWordTemplate: "不使用模板",
     useLastWordTemplate: "使用上次模板",
     noLastWordTemplate: "暂无上次使用的模板",
-    noWordTemplate: "使用 Pandoc 默认样式",
+    noWordTemplate: "按当前样式",
     exportDocument: "当前文稿",
-    docxExportDescription: "使用当前编辑内容与文稿资源创建 .docx。",
+    docxExportDescription: "稳定、日常的一键 Word 导出。内容保持可继续编辑。",
     docxExportRequiresSavedDocument: "请先保存文稿，再导出 Word 文档。",
     chooseDocxDestination: "选择 Word 文档保存位置",
     exportDocx: "导出 Word 文档…",
@@ -490,6 +541,41 @@ export const uiText: Record<UiLanguage, UiText> = {
     docxExported: (path) => `已导出 Word 文档：\n${path}`,
     docxExportedWithPreviewFallback: (path, count) => `已导出 Word 文档：\n${path}\n\n其中 ${count} 个 EMF 图元已改用 PNG 预览，以保证 Word 兼容性。`,
     docxExportFailed: "无法导出 Word 文档：",
+    wordTemplateExperiment: "精确 Word 模板（实验）",
+    wordTemplateExperimentDescription: "用于期刊、学校或单位提供的复杂 Word 模板，高保真保留原模板的分栏、节、页眉页脚及版式结构。",
+    experimentalLabel: "Experimental",
+    viewRecommendedWorkflow: "查看推荐工作流",
+    recommendedForYourAgent: "推荐通过你常用的 AI / Agent 使用",
+    agentWorkflowDescription: "先分析目标 Word 模板，建立内容位置与样式映射，再调用 Hakurou 的导出与验证能力；遇到不支持或可能损失的项目时，只对必要位置做最小修改。",
+    agentInterfaceComingSoon: "正式 Hakurou Skill / CLI 接口将在后续版本开放。",
+    advancedManualTools: "高级 / 手动工具",
+    templateLabel: "模板",
+    templateNotSelected: "未选择",
+    mappingStatus: "映射状态",
+    templateMappingNotAnalyzed: "未分析",
+    templateMappingNeedsMapping: "需要映射",
+    templateMappingReady: "映射可用",
+    templateMappingIssues: "存在问题",
+    capabilityStatus: "能力状态",
+    templateSections: "节",
+    templateColumns: "分栏",
+    templateStyles: "样式",
+    templateBookmarks: "书签",
+    templateContentControls: "内容控件",
+    templateAnchors: "位置",
+    advancedLogs: "高级日志",
+    analyzeWordTemplate: "分析模板",
+    analyzingWordTemplate: "正在分析模板…",
+    chooseTemplateOutput: "选择输出文件…",
+    templateOutput: "输出文件",
+    templateAnalysisSaved: (path) => `模板分析 JSON 已保存：\n${path}`,
+    templateTargetsMissing: (targets) => `模板缺少必需 target：${targets}`,
+    templateTargetsReady: "HAKUROU_TITLE、HAKUROU_ABSTRACT 和 HAKUROU_BODY 均已找到。",
+    experimentalExport: "实验导出",
+    experimentalExporting: "正在进行实验导出…",
+    templateExperimentRequiresSavedDocument: "请先保存文稿，再进行实验模板导出。",
+    templateExperimentExported: (path) => `实验模板导出完成：\n${path}`,
+    templateExperimentFailed: "实验模板导出失败：",
     unsavedDocuments: "存在未保存文稿",
     unsavedDocument: "文稿尚未保存",
     confirmCloseApplication: "存在未保存的修改。确定不保存并关闭 HakurouPaper 吗？",
@@ -609,7 +695,7 @@ export const uiText: Record<UiLanguage, UiText> = {
     selectedCount: (count) => ` · ${count} selected`,
     documentStats: (words, characters) => `${words} words · ${characters} characters`,
     documentDelivery: "Document Delivery",
-    documentDeliveryDescription: "Create a delivery-ready Word document with Pandoc. The selected Word template controls layout; editor display settings are not exported.",
+    documentDeliveryDescription: "Create editable Word documents for everyday delivery, or use precise export when a complex template matters.",
     versionManagement: "Version Management",
     versionManagementDescription: "Record document versions locally, then compare or restore earlier content whenever needed.",
     versionRequiresSavedDocument: "Save the document before enabling version management.",
@@ -711,10 +797,18 @@ export const uiText: Record<UiLanguage, UiText> = {
     checkPandoc: "Check again",
     downloadPandoc: "Download Pandoc",
     wordDocument: "Word document",
+    dailyWordExport: "Daily Word Export",
     wordTemplate: "Word template",
+    layoutSource: "Layout source",
+    currentStyle: "Current document style",
+    currentStyleDescription: "No Word template is needed. Maps HakurouPaper’s current visual language to sensible, editable Word styles.",
+    referenceTemplate: "Use a Word reference template",
+    referenceTemplateDescription: "Uses the selected Word file’s fonts, headings, paragraphs, and other styles as export references.",
+    referenceTemplateNotSelected: "Not selected",
+    chooseReferenceTemplate: "Choose Word reference template…",
     formulaExport: "Formula delivery",
     wordNativeFormulas: "Native Word equations",
-    wordNativeFormulasDescription: "Creates native Word equations with fonts and styling controlled entirely by the selected Word template.",
+    wordNativeFormulasDescription: "Creates editable native Word equations; choose it independently from the layout source.",
     mathTypeFormulas: "Editable MathType equations",
     mathTypeFormulasDescription: "Uses MathType’s official add-in to convert equations. Word opens during conversion and may take a while.",
     mathTypeChecking: "Checking the MathType environment…",
@@ -728,9 +822,9 @@ export const uiText: Record<UiLanguage, UiText> = {
     clearWordTemplate: "Use no template",
     useLastWordTemplate: "Use last template",
     noLastWordTemplate: "No previously used template",
-    noWordTemplate: "Use Pandoc default styles",
+    noWordTemplate: "Current document style",
     exportDocument: "Current document",
-    docxExportDescription: "Creates a .docx from the current editing content and document assets.",
+    docxExportDescription: "Stable, everyday one-click Word export with editable content.",
     docxExportRequiresSavedDocument: "Save the document before exporting a Word document.",
     chooseDocxDestination: "Choose where to save the Word document",
     exportDocx: "Export Word document…",
@@ -755,6 +849,41 @@ export const uiText: Record<UiLanguage, UiText> = {
     docxExported: (path) => `Word document exported:\n${path}`,
     docxExportedWithPreviewFallback: (path, count) => `Word document exported:\n${path}\n\n${count} EMF graphic(s) used PNG previews for Word compatibility.`,
     docxExportFailed: "Could not export the Word document:",
+    wordTemplateExperiment: "Precise Word Template (Experimental)",
+    wordTemplateExperimentDescription: "For complex Word templates from journals, schools, or organizations. Preserves the template’s columns, sections, headers, footers, and layout structure with high fidelity.",
+    experimentalLabel: "Experimental",
+    viewRecommendedWorkflow: "View recommended workflow",
+    recommendedForYourAgent: "Recommended for use through your own AI / Agent",
+    agentWorkflowDescription: "Analyze the target Word template, establish content-location and style mappings, then call Hakurou’s export and validation capabilities. If an item is unsupported or potentially lossy, report it and make only the smallest necessary changes.",
+    agentInterfaceComingSoon: "The formal Hakurou Skill / CLI interface will be available in a future release.",
+    advancedManualTools: "Advanced / manual tools",
+    templateLabel: "Template",
+    templateNotSelected: "Not selected",
+    mappingStatus: "Mapping status",
+    templateMappingNotAnalyzed: "Not analyzed",
+    templateMappingNeedsMapping: "Mapping needed",
+    templateMappingReady: "Mapping ready",
+    templateMappingIssues: "Issues found",
+    capabilityStatus: "Capability status",
+    templateSections: "Sections",
+    templateColumns: "Columns",
+    templateStyles: "Styles",
+    templateBookmarks: "Bookmarks",
+    templateContentControls: "Content controls",
+    templateAnchors: "Anchors",
+    advancedLogs: "Advanced logs",
+    analyzeWordTemplate: "Analyze template",
+    analyzingWordTemplate: "Analyzing template…",
+    chooseTemplateOutput: "Choose output file…",
+    templateOutput: "Output file",
+    templateAnalysisSaved: (path) => `Template analysis JSON saved:\n${path}`,
+    templateTargetsMissing: (targets) => `The template is missing required target(s): ${targets}`,
+    templateTargetsReady: "HAKUROU_TITLE, HAKUROU_ABSTRACT, and HAKUROU_BODY were found.",
+    experimentalExport: "Experimental export",
+    experimentalExporting: "Running experimental export…",
+    templateExperimentRequiresSavedDocument: "Save the document before experimental template export.",
+    templateExperimentExported: (path) => `Experimental template export completed:\n${path}`,
+    templateExperimentFailed: "Experimental template export failed:",
     unsavedDocuments: "Unsaved documents",
     unsavedDocument: "Document not saved",
     confirmCloseApplication: "There are unsaved changes. Close HakurouPaper without saving them?",
