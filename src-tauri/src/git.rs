@@ -4,11 +4,11 @@ use std::{
     ffi::OsStr,
     fs,
     path::{Component, Path, PathBuf},
-    process::{Command, Output},
+    process::Output,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::is_markdown_path;
+use crate::{hidden_process_command, is_markdown_path};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -242,7 +242,7 @@ fn output_message(output: &Output) -> String {
 }
 
 fn git_version_with_program(program: &OsStr) -> Result<String, String> {
-    let output = Command::new(program)
+    let output = hidden_process_command(program)
         .arg("--version")
         .output()
         .map_err(|_| "未检测到 Git。请安装 Git 并确保其位于系统 PATH 中。".to_string())?;
@@ -278,7 +278,7 @@ fn git_installation_status(program: &OsStr) -> GitInstallationStatus {
 }
 
 fn git_output_in(directory: &Path, arguments: &[&str]) -> Result<Output, String> {
-    Command::new("git")
+    hidden_process_command(OsStr::new("git"))
         .arg("-C")
         .arg(directory)
         .args(arguments)
@@ -287,7 +287,7 @@ fn git_output_in(directory: &Path, arguments: &[&str]) -> Result<Output, String>
 }
 
 fn git_output_in_owned(directory: &Path, arguments: &[String]) -> Result<Output, String> {
-    Command::new("git")
+    hidden_process_command(OsStr::new("git"))
         .arg("-C")
         .arg(directory)
         .args(arguments)

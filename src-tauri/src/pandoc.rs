@@ -6,14 +6,14 @@ use std::{
     fs::File,
     io::{Cursor, Read, Write},
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::Output,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 use zip::{write::FileOptions, ZipArchive, ZipWriter};
 
-use crate::{copy_directory, document_asset_folder, is_markdown_path, mathtype};
+use crate::{copy_directory, document_asset_folder, hidden_process_command, is_markdown_path, mathtype};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -201,7 +201,8 @@ pub(crate) fn resolve_pandoc() -> PathBuf {
 }
 
 fn pandoc_version() -> Result<String, String> {
-    let output = Command::new(resolve_pandoc())
+    let pandoc = resolve_pandoc();
+    let output = hidden_process_command(pandoc.as_os_str())
         .arg("--version")
         .output()
         .map_err(|_| {
@@ -688,7 +689,8 @@ fn run_pandoc(
     reference_doc_path: Option<&Path>,
     formula_mode: FormulaExportMode,
 ) -> Result<(), String> {
-    let mut command = Command::new(resolve_pandoc());
+    let pandoc = resolve_pandoc();
+    let mut command = hidden_process_command(pandoc.as_os_str());
     command
         .current_dir(stage_dir)
         .arg("--from=markdown")
@@ -860,7 +862,7 @@ fn inject_katex_mathtype_ole(
     )
     .map_err(|error| format!("无法更新 MTEF 公式清单：{error}"))?;
 
-    let output = Command::new("py")
+    let output = hidden_process_command(std::ffi::OsStr::new("py"))
         .arg("-3")
         .arg("-X")
         .arg("utf8")

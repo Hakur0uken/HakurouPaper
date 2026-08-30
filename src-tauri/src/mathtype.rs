@@ -4,7 +4,7 @@ use std::{
     fs,
     io::{BufRead, BufReader, Read},
     path::{Path, PathBuf},
-    process::{Command, ExitStatus, Stdio},
+    process::{ExitStatus, Stdio},
     sync::{Mutex, OnceLock},
     thread,
     time::UNIX_EPOCH,
@@ -509,7 +509,7 @@ where
     let manual_continue_path = work_dir.join("mathtype-manual-continue.signal");
     let _manual_continue_guard = ManualMathTypeSignalGuard::activate(manual_continue_path.clone())?;
 
-    let mut child = Command::new("py")
+    let mut child = crate::hidden_process_command(std::ffi::OsStr::new("py"))
         .arg("-3")
         // The Python helper emits line-delimited status JSON while Word and
         // MathType own the UI.  Keep stdout unbuffered so the React progress
