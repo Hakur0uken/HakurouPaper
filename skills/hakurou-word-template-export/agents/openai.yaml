@@ -1,0 +1,4 @@
+interface:
+  display_name: "Hakurou Word Template Export Skill"
+  short_description: "Validate and export Markdown into Word templates"
+  default_prompt: "Use $hakurou-word-template-export to map this Markdown document into the supplied Word template, preserve its OOXML package, report validation evidence, then ask whether a separate MathType version is wanted."

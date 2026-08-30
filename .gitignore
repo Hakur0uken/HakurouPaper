@@ -38,11 +38,8 @@ research/
 .tmp-*
 **/__pycache__/
 
-# Local build caches and generated verification artifacts for the experimental
-# .NET Word-template helper. Source fixtures remain tracked.
+# Local build caches for the experimental Word-template export Skill helper.
 /.dotnet-cli/
 /.nuget-packages/
-/tools/word-template-poc/bin/
-/tools/word-template-poc/obj/
-/test/word-template-poc/*.docx
-/test/word-template-poc/*.json
+/skills/hakurou-word-template-export/bin/
+/skills/hakurou-word-template-export/obj/
