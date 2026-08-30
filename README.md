@@ -1,69 +1,173 @@
+<a id="chinese"></a>
+
 # HakurouPaper
 
-[中文](#中文) · [English](#english)
+[中文](#chinese) · [English](#english)
 
-## 中文
+**让 AI 像处理代码一样理解和修改文稿，让人像编辑 Word 一样自然写作。**
 
-### 让人自然写作，让 AI 可检查地协作
+HakurouPaper 是一个为 **人与 AI 共同写作** 而设计的本地优先学术写作空间。
 
-HakurouPaper 是面向长文档、论文和正式交付的本地优先文稿工作空间。它提供接近普通文档软件的编辑体验，同时把文稿保留为开放、结构清晰的 Markdown。
+底层是清晰、开放的 Markdown、结构化资源与 Git 版本历史；你面对的则是熟悉的可视化文档编辑体验。
 
-不需要先学 Markdown 或 Git。你可以直接编辑标题、正文、图片、表格和公式；当 AI 或其他协作者参与修改时，再用版本记录、排版后的改动预览和恢复能力检查每一次变化。
+无需学习 Markdown，也无需先学会 Git。自己写、让 AI 起草或修改、检查变化、恢复版本，最后再交付为 Word。
 
-### 核心能力
+[下载 Windows 版本](https://github.com/Hakur0uken/HakurouPaper/releases/latest) · [Latest Release](https://github.com/Hakur0uken/HakurouPaper/releases/latest)
 
-- **直接写作**：可视化编辑标题、列表、表格、图片与 LaTeX 公式；支持从 Excel、网页和 PowerPoint 粘贴内容。
-- **本地版本管理**：创建版本、查看排版后的改动、恢复历史内容，无需把文稿上传到云端。
-- **开放文稿**：正文是标准 Markdown，图片等资源保存在文稿旁，未来仍可用其他工具继续处理。
-- **Word 交付**：导出可编辑 DOCX；支持 Word 参考模板、原生 Word 公式和 MathType 可编辑公式。
-- **复杂模板（实验）**：对期刊、学校或单位的 DOCX 模板，可通过显式映射尽量保留分栏、分节、页眉页脚与版式结构。复杂模板建议由 AI / Agent 调用 Hakurou Skill 完成分析、导出和验证。
+---
 
-### 获取与开始使用
+<!-- 图片占位：产品主界面截图（建议 16:9） -->
 
-请前往 [Releases](https://github.com/Hakur0uken/HakurouPaper/releases) 下载最新的 Windows 安装包。安装后，新建文稿即可开始写作；应用内的欢迎页也提供了可直接修改的示例。
+## 人和 AI，在同一个写作空间
 
-### 从源码运行
+AI 擅长处理结构化纯文本，程序员也早已有 Git 来查看修改、记录版本和随时撤回。
 
-项目使用 Tauri、React 和 TypeScript。安装 Node.js、Rust 与 Tauri 所需的 Windows 构建环境后：
+HakurouPaper 把这套能力带到普通文稿中：
 
-```bash
-npm install
-npm run tauri dev
-```
+- **对人**：像普通文档软件一样直接编辑；
+- **对 AI**：底层始终是清晰、开放的 Markdown；
+- **对协作**：每次修改都可以被查看、比较和恢复。
 
-### 反馈
+<!-- 图片占位：文稿编辑与 AI 协作界面 -->
 
-问题与建议请提交至 [GitHub Issues](https://github.com/Hakur0uken/HakurouPaper/issues)。
+## 修改有迹可循
 
-## English
+创建一个版本后继续写作，新增、修改和删除的位置会直接显示在文稿中。
 
-### Natural writing, inspectable AI collaboration
+查看修改时，正文仍然是正文，公式仍然是公式，图片仍然是图片。需要时，也可以进入高级模式查看精确的 Markdown Diff。
 
-HakurouPaper is a local-first writing workspace for long-form documents, academic work, and formal delivery. It offers familiar document editing while keeping manuscripts in open, structured Markdown.
+<!-- 图片占位：版本修改预览或高级比较界面 -->
 
-You can edit headings, body text, images, tables, and equations without first learning Markdown or Git. When an AI or another collaborator changes a manuscript, local version history, rendered change previews, and restore points keep each change visible and reviewable.
+> **Give documents the same AI collaboration safety net that code already has.**
 
-### Core capabilities
+## Markdown 写作，Word 交付
 
-- **Direct writing**: edit headings, lists, tables, images, and LaTeX equations visually; paste content from Excel, the web, and PowerPoint.
-- **Local version control**: create versions, inspect rendered changes, and restore earlier content without uploading manuscripts to a cloud service.
-- **Open manuscripts**: body text remains standard Markdown and resources stay beside the document, so other tools can continue to use them.
-- **Word delivery**: export editable DOCX files with Word reference templates, native Word equations, or editable MathType equations.
-- **Complex templates (experimental)**: explicit mappings can preserve a supplied DOCX template's columns, sections, headers, footers, and layout as far as possible. Complex templates are best analyzed, exported, and validated through a Hakurou Skill invoked by an AI / Agent.
+Markdown 可以作为写作、AI 协作和版本管理的底层，Word 仍然作为现实中的最终交付格式。
 
-### Get started
+目前支持：
 
-Download the latest Windows installer from [Releases](https://github.com/Hakur0uken/HakurouPaper/releases). Create a document after installation, or edit the built-in welcome manuscript to explore the workflow.
+- Pandoc Word 导出
+- Word 原生公式 / MathType 工作流
+- 表格与本地图片
+- PowerPoint EMF 矢量图保留
+- 自定义 Word 模板
 
-### Run from source
+<!-- 图片占位：Word 导出或交付效果 -->
 
-The project uses Tauri, React, and TypeScript. After installing Node.js, Rust, and the Windows prerequisites required by Tauri:
+## 本地、开放、轻量
 
-```bash
-npm install
-npm run tauri dev
-```
+HakurouPaper 基于 Tauri 构建，保持较小的安装体积和较低的硬件要求。
 
-### Feedback
+正文和公式保留在标准 Markdown 中，图片等资源保存在文稿附近，版本历史由标准 Git 管理。
 
-Please report issues and ideas through [GitHub Issues](https://github.com/Hakur0uken/HakurouPaper/issues).
+即使以后换用其他支持 Markdown 的工具，你仍然可以继续打开和修改自己的文稿。
+
+**你的文稿始终属于你。**
+
+## AI-ready
+
+正式的 AI / Agent 接口仍在开发中。
+
+长期目标不是简单增加一个聊天框，而是让 AI 可以直接理解和操作文稿结构，并在可追踪、可恢复的版本体系中与人共同完成长文档写作。
+
+## 下载
+
+目前提供 Windows 版本：
+
+**[前往 Releases 下载 HakurouPaper](https://github.com/Hakur0uken/HakurouPaper/releases/latest)**
+
+## Roadmap
+
+- AI / Agent 文稿接口
+- Remote Git / GitHub 协作
+- Word 学术交付完善
+- 长文档性能优化
+- 跨平台支持
+
+---
+
+<a id="english"></a>
+
+# HakurouPaper
+
+[中文](#chinese) · [English](#english)
+
+**Let AI understand and edit documents like code, while people write as naturally as they do in Word.**
+
+HakurouPaper is a local-first academic writing workspace designed for **people and AI to write together**.
+
+Underneath are clear, open Markdown, structured assets, and Git version history. What you work with is a familiar visual document-editing experience.
+
+There is no need to learn Markdown or Git first. Write yourself, ask AI to draft or revise, inspect changes, restore versions, and deliver to Word when you are ready.
+
+[Download for Windows](https://github.com/Hakur0uken/HakurouPaper/releases/latest) · [Latest Release](https://github.com/Hakur0uken/HakurouPaper/releases/latest)
+
+---
+
+<!-- Image placeholder: product workspace screenshot (suggested 16:9) -->
+
+## People and AI, in the same writing space
+
+AI excels at structured plain text, and developers have long used Git to review changes, record versions, and roll back safely.
+
+HakurouPaper brings those capabilities to everyday documents:
+
+- **For people:** edit directly, just as in a familiar document editor;
+- **For AI:** work with clear, open Markdown underneath;
+- **For collaboration:** review, compare, and restore every change.
+
+<!-- Image placeholder: document editing and AI collaboration workspace -->
+
+## Changes you can always trace
+
+Keep writing after creating a version, and additions, edits, and deletions are shown directly in the document.
+
+When reviewing changes, paragraphs remain paragraphs, equations remain equations, and images remain images. When needed, switch to Advanced mode for an exact Markdown diff.
+
+<!-- Image placeholder: revision preview or advanced comparison -->
+
+> **Give documents the same AI collaboration safety net that code already has.**
+
+## Write in Markdown, deliver in Word
+
+Markdown is the foundation for writing, AI collaboration, and version management. Word remains the practical format for final delivery.
+
+Currently supported:
+
+- Pandoc Word export
+- Native Word equation / MathType workflows
+- Tables and local images
+- PowerPoint EMF vector graphics preserved
+- Custom Word templates
+
+<!-- Image placeholder: Word export or delivery result -->
+
+## Local, open, and lightweight
+
+Built with Tauri, HakurouPaper keeps installation size small and hardware requirements modest.
+
+Text and equations stay in standard Markdown, assets live beside the document, and version history is managed with standard Git.
+
+Even if you later move to another Markdown-capable tool, you can continue opening and editing your work.
+
+**Your documents always belong to you.**
+
+## AI-ready
+
+The formal AI / Agent interface is still in development.
+
+The long-term goal is not simply to add a chat box, but to let AI understand and operate on document structure while people collaborate on long-form writing through a traceable, recoverable versioning system.
+
+## Download
+
+Windows builds are currently available:
+
+**[Get HakurouPaper from Releases](https://github.com/Hakur0uken/HakurouPaper/releases/latest)**
+
+## Roadmap
+
+- AI / Agent document interface
+- Remote Git / GitHub collaboration
+- More complete academic Word delivery
+- Long-document performance improvements
+- Cross-platform support
