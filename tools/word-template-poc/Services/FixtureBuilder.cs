@@ -6,10 +6,10 @@ using System.Text;
 namespace Hakurou.WordTemplatePoc.Services;
 
 /// <summary>
-/// Test-only instrumentation for a third-party template that does not expose
-/// Hakurou mapping targets. It starts from a copied template and adds three
-/// tagged content controls, placing the body control immediately before the
-/// paragraph that terminates the first multi-column section. The source
+/// Developer-only instrumentation for a third-party template that does not
+/// expose Hakurou mapping targets. It starts from a copied template and adds
+/// three tagged content controls, placing the body control immediately before
+/// the paragraph that terminates the first multi-column section. The source
 /// template is never changed.
 /// </summary>
 public static class FixtureBuilder
@@ -19,6 +19,40 @@ public static class FixtureBuilder
 
     public static void CreateBookmarkInstrumentedCopy(string sourcePath, string outputPath)
         => CreateInstrumentedCopy(sourcePath, outputPath, useBookmarksForTextSlots: true);
+
+    /// <summary>
+    /// Copies a sample-filled template and wraps explicitly approved, top-level
+    /// body-element ranges in Hakurou mapping controls. This deliberately does
+    /// not infer ranges from text or styles: the caller must inspect the source
+    /// document and provide its exact top-level element boundaries.
+    /// </summary>
+    public static void CreateExplicitRangeMappedCopy(string sourcePath, string outputPath, ExplicitRangeMapping mapping)
+    {
+        var source = Path.GetFullPath(sourcePath);
+        var destination = Path.GetFullPath(outputPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(destination) ?? throw new InvalidOperationException("Output path has no parent directory."));
+        File.Copy(source, destination, true);
+
+        using var document = WordprocessingDocument.Open(destination, true);
+        var body = document.MainDocumentPart?.Document?.Body
+            ?? throw new InvalidDataException("The template has no main document body.");
+        var existingTargets = body.Descendants<Tag>()
+            .Select(tag => tag.Val?.Value)
+            .Concat(body.Descendants<BookmarkStart>().Select(bookmark => bookmark.Name?.Value))
+            .Where(name => name is "HAKUROU_TITLE" or "HAKUROU_ABSTRACT" or "HAKUROU_BODY")
+            .ToArray();
+        if (existingTargets.Length > 0)
+            throw new InvalidDataException($"The template already contains Hakurou mapping target(s): {string.Join(", ", existingTargets)}. Render against its existing anchors instead of range mapping it again.");
+        var elements = body.ChildElements
+            .Where(element => element is not SectionProperties)
+            .ToArray();
+
+        ValidateExplicitMapping(elements, mapping);
+        WrapRange(elements, mapping.BodyStart, elements.Length - 1, "HAKUROU_BODY", "Body");
+        WrapRange(elements, mapping.AbstractStart, mapping.AbstractEnd, "HAKUROU_ABSTRACT", "Abstract");
+        WrapRange(elements, mapping.TitleStart, mapping.TitleEnd, "HAKUROU_TITLE", "Title");
+        document.MainDocumentPart!.Document!.Save();
+    }
 
     private static void CreateInstrumentedCopy(string sourcePath, string outputPath, bool useBookmarksForTextSlots)
     {
@@ -62,6 +96,37 @@ public static class FixtureBuilder
                 new Paragraph(
                     new ParagraphProperties(new ParagraphStyleId { Val = styleId }),
                     new Run(new Text(placeholder)))));
+    }
+
+    private static void ValidateExplicitMapping(IReadOnlyList<OpenXmlElement> elements, ExplicitRangeMapping mapping)
+    {
+        if (elements.Count == 0) throw new InvalidDataException("The template body has no top-level content to map.");
+        if (mapping.TitleStart != 0 || mapping.TitleEnd < mapping.TitleStart ||
+            mapping.AbstractStart != mapping.TitleEnd + 1 || mapping.AbstractEnd < mapping.AbstractStart ||
+            mapping.BodyStart != mapping.AbstractEnd + 1 || mapping.BodyStart >= elements.Count)
+            throw new InvalidDataException("Explicit mapping ranges must be contiguous from the first body element through the final body element, and must leave a body element to replace.");
+        if (mapping.TitleEnd >= elements.Count || mapping.AbstractEnd >= elements.Count)
+            throw new InvalidDataException("An explicit mapping range exceeds the template body's top-level content.");
+    }
+
+    private static void WrapRange(IReadOnlyList<OpenXmlElement> elements, int start, int end, string tag, string title)
+    {
+        var first = elements[start];
+        var content = new SdtContentBlock();
+        var control = new SdtBlock(
+            new SdtProperties(
+                new SdtAlias { Val = title },
+                new Tag { Val = tag },
+                new SdtId { Val = Random.Shared.Next(1, int.MaxValue) }),
+            content);
+        first.InsertBeforeSelf(control);
+
+        for (var index = start; index <= end; index++)
+        {
+            var element = elements[index];
+            element.Remove();
+            content.AppendChild(element);
+        }
     }
 
     private static Paragraph CreateBookmarkParagraph(string name, int id, string styleId, string placeholder)
@@ -323,3 +388,10 @@ public sealed record RegressionTemplate(
     bool ExistingNumbering,
     bool ExistingImageRelationship,
     bool UseBookmarks);
+
+public sealed record ExplicitRangeMapping(
+    int TitleStart,
+    int TitleEnd,
+    int AbstractStart,
+    int AbstractEnd,
+    int BodyStart);

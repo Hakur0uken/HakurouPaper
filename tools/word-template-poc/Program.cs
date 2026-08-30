@@ -14,7 +14,7 @@ var serializerOptions = new JsonSerializerOptions
 
 try
 {
-    if (args.Length == 0) throw new ArgumentException("Expected inspect-template, parse-markdown, render-template, roundtrip-template, validate-with-word, run-regression, prepare-test-template, or prepare-bookmark-test-template.");
+    if (args.Length == 0) throw new ArgumentException("Expected inspect-template, parse-markdown, render-template, roundtrip-template, validate-with-word, run-regression, prepare-test-template, prepare-range-mapped-template, or prepare-bookmark-test-template.");
     object result = args[0] switch
     {
         "inspect-template" => InspectTemplate(args[1..]),
@@ -24,6 +24,7 @@ try
         "validate-with-word" => ValidateWithWord(args[1..]),
         "run-regression" => RunRegression(args[1..]),
         "prepare-test-template" => PrepareTestTemplate(args[1..]),
+        "prepare-range-mapped-template" => PrepareRangeMappedTemplate(args[1..]),
         "prepare-bookmark-test-template" => PrepareBookmarkTestTemplate(args[1..]),
         _ => throw new ArgumentException($"Unknown command: {args[0]}"),
     };
@@ -93,4 +94,26 @@ object PrepareBookmarkTestTemplate(string[] commandArgs)
     if (commandArgs.Length != 2) throw new ArgumentException("Usage: prepare-bookmark-test-template <source.docx> <output.docx>");
     FixtureBuilder.CreateBookmarkInstrumentedCopy(commandArgs[0], commandArgs[1]);
     return new { success = true, outputPath = Path.GetFullPath(commandArgs[1]) };
+}
+
+object PrepareRangeMappedTemplate(string[] commandArgs)
+{
+    if (commandArgs.Length != 7)
+        throw new ArgumentException("Usage: prepare-range-mapped-template <source.docx> <output.docx> <title-start> <title-end> <abstract-start> <abstract-end> <body-start>");
+
+    var positions = commandArgs[2..]
+        .Select(value => int.TryParse(value, out var position)
+            ? position
+            : throw new ArgumentException($"Mapping position must be an integer: {value}"))
+        .ToArray();
+    FixtureBuilder.CreateExplicitRangeMappedCopy(
+        commandArgs[0],
+        commandArgs[1],
+        new ExplicitRangeMapping(
+            positions[0],
+            positions[1],
+            positions[2],
+            positions[3],
+            positions[4]));
+    return new { success = true, outputPath = Path.GetFullPath(commandArgs[1]), mapping = positions };
 }

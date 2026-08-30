@@ -30,6 +30,7 @@ Commands emit JSON on standard output:
 ```powershell
 dotnet run --project .\Hakurou.WordTemplatePoc.csproj -- inspect-template template.docx --report template-analysis.json
 dotnet run --project .\Hakurou.WordTemplatePoc.csproj -- roundtrip-template template.docx roundtrip.docx
+dotnet run --project .\Hakurou.WordTemplatePoc.csproj -- prepare-range-mapped-template source.docx mapped-working-copy.docx 0 2 3 4 5
 Get-Content request.json | dotnet run --project .\Hakurou.WordTemplatePoc.csproj -- render-template
 dotnet run --project .\Hakurou.WordTemplatePoc.csproj -- run-regression ..\..\pandoc\pandoc.exe ..\..\test\word-template-poc\multi-resource.md $env:TEMP\hakurou-word-template-regression
 # Developer-only: opens a generated file and SaveAs2 copies it through Word.
@@ -41,6 +42,13 @@ dotnet run --project .\Hakurou.WordTemplatePoc.csproj -- validate-with-word gene
 targets `HAKUROU_TITLE`, `HAKUROU_ABSTRACT`, and `HAKUROU_BODY`, first as a
 content-control tag and then as a bookmark name. It reports unresolved targets
 instead of inferring locations.
+
+`prepare-range-mapped-template` is developer-only instrumentation for a
+sample-filled template that has no Hakurou anchors. Its five integer arguments
+are approved top-level `w:body` positions (title start/end, abstract start/end,
+and body start), excluding the final body `w:sectPr`. It copies the source and
+wraps those explicit ranges in the three deterministic content controls; it
+does not identify ranges from text, styles, OLE objects, or ordinary bookmarks.
 
 OfficeIMO is used to prove that the template can be loaded and to run the
 explicit save round-trip experiment. Open XML SDK performs the package
