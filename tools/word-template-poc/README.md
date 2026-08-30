@@ -40,17 +40,64 @@ reported as blocking gaps before an output file is created. Generic fallback
 to a template default paragraph/table/character style is reported as
 `potentiallyLossy`, not silently treated as a perfect style match.
 
-Every successful export writes `word-validation-report.json` beside its output.
-It contains Open XML schema results, relationship checks, duplicate Word IDs,
-section/column counts, changed parts, and changes outside the allowlist. The
-export fails if schema, relationships, IDs, or package preservation fails.
+## Stage 3 hardening guarantees
+
+The body anchor is resolved to its real Word section: a paragraph `w:sectPr`
+terminates the preceding section, rather than starting the following one. The
+exporter derives usable page width from page size, left/right margins and
+gutter, then derives equal or explicit unequal column widths. Inline pictures
+are only downscaled (both `wp:extent` and DrawingML transform extent) to the
+narrowest applicable flowing column. Simple tables may be AutoFit/scaled; an
+obviously too-wide table is still exported but is reported as
+`potentiallyLossy: table too wide for current column`. It never rotates or
+spans tables automatically.
+
+Text bookmarks replace only the direct inline range between their matching
+start/end nodes, so visible prefix and suffix runs survive. A body bookmark is
+accepted only when it is a dedicated paragraph containing paragraph properties,
+a matching bookmark pair, and a simple placeholder run; inline or mixed-content
+body bookmarks fail with `incompatibleAnchor`.
+
+Rendering is transactional: the template is copied to a unique temporary DOCX
+in the output directory, patched, package-validated and only then renamed over
+the requested final output. A failure removes temporary files and never creates
+or overwrites the final DOCX. The adjacent developer report uses the same
+publication rule and is named `<output-name>.validation.json`.
+
+Validation requires every XML `r:id`, `r:embed`, and `r:link` reference to have
+its source `.rels` part, relationship ID and (for internal relationships)
+target part. The baseline retains a canonical full snapshot of every original
+`w:sectPr`; margin, header/footer reference, or unknown section-property
+changes therefore fail validation even though `word/document.xml` is the one
+permitted edited part.
+
+Capability reporting is deliberately semantic: `Supported` means the importer
+deterministically creates or modifies it, `Preserved` means the feature really
+exists in the template and stayed untouched, `Unsupported` is a detected unsafe
+dependency, and `PotentiallyLossy` is an explicit risk. Template sections,
+columns, headers, and footers are preservation claims, never advertised as
+importer-created features.
 
 `run-regression` builds seven deliberately small templates (single-column,
 continuous columns, sections with headers/footers, existing numbering,
 existing image relationship, content controls, and bookmarks). It injects the
 same rich fixture twice into each one and also proves inline, duplicate, and
-malformed anchors are rejected. All generated files stay in the supplied
-output directory.
+malformed anchors are rejected. Stage 3 additionally verifies wide/narrow
+images, three and unequal columns, wide-table warnings, inline bookmark prefix
+and suffix preservation, non-dedicated body bookmark rejection, transactional
+failure behaviour, missing source relationship parts, and header/margin section
+snapshot failures. All generated files stay in the supplied output directory.
+
+## MathType compatibility note (developer-only)
+
+This PoC does not recreate MathType/OLE. To check a template that is later
+passed to the existing MathType path, export it with this helper first, run the
+existing MathType conversion flow, then inspect the resulting package for its
+original section snapshots, header/footer parts and relationship IDs, embedded
+image relationships, and numbering IDs. This is a manual developer check: the
+Windows-only MathType pipeline is not automated by `run-regression`, so absence
+of an installed MathType environment remains a reported verification limitation
+rather than a claim of compatibility.
 
 `validate-with-word` is intentionally an explicit developer command and is not
 called by the Tauri bridge or normal application export. It skips when Word is

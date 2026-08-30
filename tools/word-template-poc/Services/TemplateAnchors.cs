@@ -120,10 +120,14 @@ public static class TemplateAnchors
                 issues.Add($"invalid bookmark {name}: {bookmarkIssue}");
                 continue;
             }
-            if (requiresBlock && bookmarks[0].Ancestors<Paragraph>().FirstOrDefault()?.ParagraphProperties?.SectionProperties is not null)
+            if (requiresBlock)
             {
-                issues.Add($"incompatibleAnchor: {name} shares a paragraph with a template section break");
-                continue;
+                var dedicatedIssue = DescribeDedicatedBodyBookmarkIssue(bookmarks[0]);
+                if (dedicatedIssue is not null)
+                {
+                    issues.Add($"incompatibleAnchor: {name} {dedicatedIssue}");
+                    continue;
+                }
             }
             resolved.Add(name, new TargetLocation(null, bookmarks[0]));
         }
@@ -156,12 +160,47 @@ public static class TemplateAnchors
         var matchingEnds = paragraph.Descendants<BookmarkEnd>()
             .Where(end => string.Equals(end.Id?.Value, id, StringComparison.Ordinal))
             .ToArray();
-        return matchingEnds.Length switch
+        var issue = matchingEnds.Length switch
         {
             0 => "missing matching bookmark end in the same paragraph",
             > 1 => "multiple matching bookmark ends in the same paragraph",
             _ => null,
         };
+        if (issue is not null) return issue;
+        return bookmark.Parent == paragraph && matchingEnds[0].Parent == paragraph
+            ? null
+            : "bookmark range is not an inline paragraph range";
+    }
+
+    private static string? DescribeDedicatedBodyBookmarkIssue(BookmarkStart bookmark)
+    {
+        var paragraph = bookmark.Ancestors<Paragraph>().FirstOrDefault();
+        if (paragraph is null) return "is not contained by a paragraph";
+        if (paragraph.ParagraphProperties?.SectionProperties is not null)
+            return "shares a paragraph with a template section break";
+        var id = bookmark.Id?.Value;
+        var end = paragraph.ChildElements.OfType<BookmarkEnd>()
+            .SingleOrDefault(candidate => string.Equals(candidate.Id?.Value, id, StringComparison.Ordinal));
+        if (end is null) return "does not have a direct matching bookmark end";
+        var children = paragraph.ChildElements.ToArray();
+        var startIndex = Array.IndexOf(children, bookmark);
+        var endIndex = Array.IndexOf(children, end);
+        if (startIndex < 0 || endIndex <= startIndex) return "has an invalid bookmark range";
+
+        // A body replacement deletes this paragraph, so only the explicitly
+        // marked placeholder run may exist. Paragraph properties are allowed
+        // because they are template formatting, not visible surrounding text.
+        foreach (var child in children)
+        {
+            if (child is ParagraphProperties) continue;
+            if (child is BookmarkStart start && start == bookmark) continue;
+            if (child is BookmarkEnd bookmarkEnd && bookmarkEnd == end) continue;
+            if (child is not Run run || child != children.Skip(startIndex + 1).Take(endIndex - startIndex - 1).SingleOrDefault())
+                return "must use a dedicated placeholder paragraph";
+            if (run.ChildElements.Any(element => element is not RunProperties and not Text))
+                return "must contain only a placeholder text run";
+        }
+        return null;
     }
 
     public sealed record TargetLocation(SdtElement? ContentControl, BookmarkStart? Bookmark);

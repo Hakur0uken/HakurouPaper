@@ -16,6 +16,7 @@ public static class DocxFragmentImporter
 {
     private const string WordNamespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
     private const string DrawingNamespace = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
+    private const string DrawingMlNamespace = "http://schemas.openxmlformats.org/drawingml/2006/main";
     private const string RelationshipNamespace = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
     public static FragmentImportAnalysis Analyze(WordprocessingDocument fragment, WordprocessingDocument template)
@@ -64,6 +65,7 @@ public static class DocxFragmentImporter
         WordprocessingDocument template,
         FragmentImportAnalysis analysis,
         ExistingPackageIds existingIds,
+        SectionLayoutContext layout,
         ICollection<string> logs)
     {
         if (analysis.Gaps.Any(gap => gap.Blocking))
@@ -94,6 +96,7 @@ public static class DocxFragmentImporter
             RewriteRelationshipReferences(clone, relationshipMap);
             RewriteNumberingReferences(clone, numberingMap);
             RewriteBookmarksAndInternalLinks(clone, bookmarkMaps, drawingIdAllocator);
+            ApplyLayoutConstraints(clone, layout, analysis, logs);
             imported.Add(clone);
         }
 
@@ -107,6 +110,83 @@ public static class DocxFragmentImporter
         if (numberingMap.Count > 0)
             logs.Add($"[Injection] Remapped {numberingMap.Count} numbering instance(s)");
         return imported;
+    }
+
+    private static void ApplyLayoutConstraints(
+        OpenXmlElement root,
+        SectionLayoutContext layout,
+        FragmentImportAnalysis analysis,
+        ICollection<string> logs)
+    {
+        var maxImageWidth = layout.EffectiveColumnWidthEmus;
+        var downscaledImages = 0;
+        foreach (var inline in AllElements([root]).Where(element => element.LocalName == "inline" && element.NamespaceUri == DrawingNamespace))
+        {
+            var extent = inline.Descendants().FirstOrDefault(element => element.LocalName == "extent" && element.NamespaceUri == DrawingNamespace);
+            if (extent is null) continue;
+            var width = ReadLongAttribute(extent, "cx");
+            var height = ReadLongAttribute(extent, "cy");
+            if (width is null || height is null || width <= 0 || height <= 0 || width <= maxImageWidth) continue;
+            var ratio = (double)maxImageWidth / width.Value;
+            var newWidth = maxImageWidth;
+            var newHeight = Math.Max(1L, (long)Math.Round(height.Value * ratio, MidpointRounding.AwayFromZero));
+            SetNoNamespaceAttribute(extent, "cx", newWidth);
+            SetNoNamespaceAttribute(extent, "cy", newHeight);
+            foreach (var transformExtent in inline.Descendants().Where(element => element.LocalName == "ext"
+                && element.NamespaceUri == DrawingMlNamespace
+                && element.Ancestors().Any(ancestor => ancestor.LocalName == "xfrm" && ancestor.NamespaceUri == DrawingMlNamespace)))
+            {
+                SetNoNamespaceAttribute(transformExtent, "cx", newWidth);
+                SetNoNamespaceAttribute(transformExtent, "cy", newHeight);
+            }
+            downscaledImages++;
+        }
+        if (downscaledImages > 0) logs.Add($"[Layout] Downscaled {downscaledImages} inline image(s) to {layout.EffectiveColumnWidthTwips} twips or less");
+
+        foreach (var table in AllElements([root]).OfType<Table>())
+            FitTableToColumn(table, layout, analysis, logs);
+    }
+
+    private static void FitTableToColumn(
+        Table table,
+        SectionLayoutContext layout,
+        FragmentImportAnalysis analysis,
+        ICollection<string> logs)
+    {
+        var gridColumns = table.Descendants<TableGrid>().SelectMany(grid => grid.Elements<GridColumn>()).ToArray();
+        var gridWidth = gridColumns.Sum(column => ReadWordAttributeInt(column, "w") ?? 0);
+        var tableWidth = table.TableProperties?.TableWidth is { } width
+            && width.Type?.Value == TableWidthUnitValues.Dxa
+            ? int.TryParse(width.Width?.Value, out var dxa) ? dxa : 0
+            : 0;
+        var measuredWidth = Math.Max(gridWidth, tableWidth);
+        if (measuredWidth <= layout.EffectiveColumnWidthTwips || measuredWidth == 0) return;
+
+        var ratio = (double)layout.EffectiveColumnWidthTwips / measuredWidth;
+        if (ratio < 0.70)
+        {
+            analysis.AddPotentiallyLossy("table too wide for current column");
+            logs.Add($"[Layout] table width {measuredWidth} twips exceeds current column {layout.EffectiveColumnWidthTwips} twips; left unrotated");
+            return;
+        }
+        foreach (var column in gridColumns)
+        {
+            var original = ReadWordAttributeInt(column, "w");
+            if (original is not null) SetWordAttribute(column, "w", Math.Max(1, (int)Math.Round(original.Value * ratio)));
+        }
+        foreach (var cellWidth in table.Descendants<TableCellWidth>().Where(width => width.Type?.Value == TableWidthUnitValues.Dxa))
+            if (int.TryParse(cellWidth.Width?.Value, out var original)) cellWidth.Width = Math.Max(1, (int)Math.Round(original * ratio)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (table.TableProperties?.TableWidth is { } targetWidth)
+        {
+            targetWidth.Width = layout.EffectiveColumnWidthTwips.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            targetWidth.Type = TableWidthUnitValues.Dxa;
+        }
+        if (table.TableProperties is not null)
+        {
+            var tableLayout = table.TableProperties.TableLayout ?? table.TableProperties.AppendChild(new TableLayout());
+            tableLayout.Type = TableLayoutValues.Autofit;
+        }
+        logs.Add($"[Layout] scaled a simple table to current column width ({layout.EffectiveColumnWidthTwips} twips)");
     }
 
     public static ExistingPackageIds ReadExistingPackageIds(string packagePath)
@@ -493,6 +573,15 @@ public static class DocxFragmentImporter
     private static void SetNoNamespaceAttribute(OpenXmlElement element, string localName, uint value) =>
         element.SetAttribute(new OpenXmlAttribute(string.Empty, localName, string.Empty, value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
 
+    private static void SetNoNamespaceAttribute(OpenXmlElement element, string localName, long value) =>
+        element.SetAttribute(new OpenXmlAttribute(string.Empty, localName, string.Empty, value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+
+    private static long? ReadLongAttribute(OpenXmlElement element, string localName)
+    {
+        var value = element.GetAttributes().FirstOrDefault(attribute => attribute.NamespaceUri.Length == 0 && attribute.LocalName == localName).Value;
+        return long.TryParse(value, out var result) ? result : null;
+    }
+
     private static string AllocateBookmarkName(string sourceName, ISet<string> taken)
     {
         if (!taken.Contains(sourceName)) return sourceName;
@@ -648,11 +737,18 @@ public static class DocxFragmentImporter
         IReadOnlyCollection<BookmarkDefinition> SourceBookmarks,
         IReadOnlyList<ImportGap> Gaps,
         IReadOnlyList<string> SupportedFeatures,
-        IReadOnlyList<string> PotentiallyLossyFeatures)
+        IReadOnlyList<string> InitialPotentiallyLossyFeatures)
     {
+        private readonly HashSet<string> _runtimePotentiallyLossy = new(StringComparer.Ordinal);
         public bool HasBlockingGaps => Gaps.Any(gap => gap.Blocking);
         public bool RequiresRelationshipChanges => ImageRelationshipIds.Count > 0 || HyperlinkRelationshipIds.Count > 0;
         public bool RequiresNumberingChanges => NumberingIds.Count > 0;
+        public IReadOnlyList<string> PotentiallyLossyFeatures => InitialPotentiallyLossyFeatures
+            .Concat(_runtimePotentiallyLossy)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(value => value, StringComparer.Ordinal)
+            .ToArray();
+        public void AddPotentiallyLossy(string feature) => _runtimePotentiallyLossy.Add(feature);
     }
 
     public sealed record BookmarkDefinition(string Id, string? Name);

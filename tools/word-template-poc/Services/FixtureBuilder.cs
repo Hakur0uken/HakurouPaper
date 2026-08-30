@@ -8,8 +8,9 @@ namespace Hakurou.WordTemplatePoc.Services;
 /// <summary>
 /// Test-only instrumentation for a third-party template that does not expose
 /// Hakurou mapping targets. It starts from a copied template and adds three
-/// tagged content controls, placing the body control after the first boundary
-/// leading into a multi-column section. The source template is never changed.
+/// tagged content controls, placing the body control immediately before the
+/// paragraph that terminates the first multi-column section. The source
+/// template is never changed.
 /// </summary>
 public static class FixtureBuilder
 {
@@ -43,7 +44,10 @@ public static class FixtureBuilder
         var multiColumnBoundary = body.Descendants<Paragraph>()
             .FirstOrDefault(paragraph => (paragraph.ParagraphProperties?.SectionProperties?.GetFirstChild<Columns>()?.ColumnCount?.Value ?? 1) == 2)
             ?? throw new InvalidDataException("The template does not contain a two-column section boundary.");
-        multiColumnBoundary.InsertAfterSelf(CreateBlockControl("HAKUROU_BODY", "Body", "a", "Template body placeholder"));
+        // In WordprocessingML a paragraph's sectPr closes the section before
+        // it; inserting after it would move the body into the following (often
+        // single-column) section.
+        multiColumnBoundary.InsertBeforeSelf(CreateBlockControl("HAKUROU_BODY", "Body", "a", "Template body placeholder"));
         document.MainDocumentPart!.Document!.Save();
     }
 
@@ -141,6 +145,95 @@ public static class FixtureBuilder
         };
     }
 
+    /// <summary>Small, purpose-built fixtures for Stage 3 layout and anchor probes.</summary>
+    public static IReadOnlyDictionary<string, string> CreateStage3ProbeTemplates(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        var twoColumns = Path.Combine(directory, "two-columns.docx");
+        var threeColumns = Path.Combine(directory, "three-columns.docx");
+        var unequalColumns = Path.Combine(directory, "unequal-columns.docx");
+        var inlineText = Path.Combine(directory, "inline-text-bookmark.docx");
+        var nonDedicatedBody = Path.Combine(directory, "non-dedicated-body-bookmark.docx");
+        var sectionHeader = Path.Combine(directory, "section-header.docx");
+        CreateMinimalTemplate(twoColumns, new RegressionTemplate("two", true, false, false, false, false));
+        CreateMinimalTemplate(threeColumns, new RegressionTemplate("three", false, false, false, false, false));
+        CreateMinimalTemplate(unequalColumns, new RegressionTemplate("unequal", false, false, false, false, false));
+        CreateMinimalTemplate(inlineText, new RegressionTemplate("inlineText", false, false, false, false, true));
+        CreateMinimalTemplate(nonDedicatedBody, new RegressionTemplate("nonDedicated", false, false, false, false, true));
+        CreateMinimalTemplate(sectionHeader, new RegressionTemplate("sectionHeader", true, true, false, false, false));
+
+        ConfigureColumns(threeColumns, 3, 360, null);
+        ConfigureColumns(unequalColumns, 3, 0, new[] { (1600, 200), (2800, 200), (3400, 0) });
+        ReplaceBookmarkParagraphWithInlineText(inlineText, "HAKUROU_TITLE", 101, "Prefix ", "[BOOKMARK]", " Suffix", "Title");
+        ReplaceBookmarkParagraphWithInlineText(inlineText, "HAKUROU_ABSTRACT", 102, "Abstract prefix ", "[BOOKMARK]", " abstract suffix", "Normal");
+        MakeBodyBookmarkNonDedicated(nonDedicatedBody);
+
+        return new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["two-columns"] = twoColumns,
+            ["three-columns"] = threeColumns,
+            ["unequal-columns"] = unequalColumns,
+            ["inline-text-bookmark"] = inlineText,
+            ["non-dedicated-body-bookmark"] = nonDedicatedBody,
+            ["section-header"] = sectionHeader,
+        };
+    }
+
+    private static void ConfigureColumns(string path, short count, int space, IReadOnlyList<(int Width, int Space)>? explicitColumns)
+    {
+        using var document = WordprocessingDocument.Open(path, true);
+        var section = document.MainDocumentPart!.Document!.Body!.Elements<SectionProperties>().Single();
+        var columns = section.GetFirstChild<Columns>() ?? section.AppendChild(new Columns());
+        columns.ColumnCount = count;
+        columns.Space = space.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        columns.RemoveAllChildren<Column>();
+        if (explicitColumns is not null)
+        {
+            foreach (var (width, columnSpace) in explicitColumns)
+            {
+                var column = new Column();
+                column.SetAttribute(new OpenXmlAttribute("w", "w", "http://schemas.openxmlformats.org/wordprocessingml/2006/main", width.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+                if (columnSpace > 0)
+                    column.SetAttribute(new OpenXmlAttribute("w", "space", "http://schemas.openxmlformats.org/wordprocessingml/2006/main", columnSpace.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+                columns.AppendChild(column);
+            }
+        }
+        document.MainDocumentPart.Document.Save();
+    }
+
+    private static void ReplaceBookmarkParagraphWithInlineText(string path, string name, int id, string prefix, string placeholder, string suffix, string styleId)
+    {
+        using var document = WordprocessingDocument.Open(path, true);
+        var body = document.MainDocumentPart!.Document!.Body!;
+        var old = body.Descendants<BookmarkStart>().Single(bookmark => bookmark.Name?.Value == name).Ancestors<Paragraph>().Single();
+        var idText = id.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        old.InsertAfterSelf(new Paragraph(
+            new ParagraphProperties(new ParagraphStyleId { Val = styleId }),
+            new Run(new Text(prefix)),
+            new BookmarkStart { Name = name, Id = idText },
+            new Run(new Text(placeholder)),
+            new BookmarkEnd { Id = idText },
+            new Run(new Text(suffix))));
+        old.Remove();
+        document.MainDocumentPart.Document.Save();
+    }
+
+    private static void MakeBodyBookmarkNonDedicated(string path)
+    {
+        using var document = WordprocessingDocument.Open(path, true);
+        var body = document.MainDocumentPart!.Document!.Body!;
+        var control = body.Descendants<SdtBlock>().Single(block => block.SdtProperties?.GetFirstChild<Tag>()?.Val?.Value == "HAKUROU_BODY");
+        control.InsertAfterSelf(new Paragraph(
+            new ParagraphProperties(new ParagraphStyleId { Val = "Normal" }),
+            new Run(new Text("Prefix ")),
+            new BookmarkStart { Name = "HAKUROU_BODY", Id = "333" },
+            new Run(new Text("[BOOKMARK]")),
+            new BookmarkEnd { Id = "333" },
+            new Run(new Text(" Suffix"))));
+        control.Remove();
+        document.MainDocumentPart.Document.Save();
+    }
+
     private static void CreateMinimalTemplate(string path, RegressionTemplate fixture)
     {
         using var document = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document);
@@ -191,6 +284,8 @@ public static class FixtureBuilder
 
     private static SectionProperties CreateSectionProperties(short columns) => new(
         new SectionType { Val = SectionMarkValues.Continuous },
+        new PageSize { Width = 12240, Height = 15840 },
+        new PageMargin { Top = 1440, Bottom = 1440, Left = 1440, Right = 1440, Gutter = 0 },
         new Columns { ColumnCount = columns });
 
     private static void AddHeaderFooterReferences(MainDocumentPart main, SectionProperties section, string text)

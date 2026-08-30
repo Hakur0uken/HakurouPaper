@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text;
 using System.Xml.Linq;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Validation;
@@ -22,16 +23,20 @@ public static class PackageValidationService
     public static WordValidationReport Validate(
         string candidatePath,
         PackageComparison comparison,
-        IReadOnlyList<string> unexpectedChangedParts)
+        IReadOnlyList<string> unexpectedChangedParts,
+        IReadOnlyList<SectionStructuralSnapshot>? baselineSections = null)
     {
         var validationErrors = ValidateOpenXml(candidatePath);
         var danglingRelationships = FindDanglingRelationships(candidatePath);
         var duplicateIds = FindDuplicateIds(candidatePath);
         var (sections, columns, sectPrCount) = ReadSections(candidatePath);
+        var snapshots = ReadSectionSnapshots(candidatePath);
+        var sectionPreservationErrors = CompareSectionSnapshots(baselineSections, snapshots);
         var passed = validationErrors.Count == 0
             && danglingRelationships.Count == 0
             && duplicateIds.Count == 0
-            && unexpectedChangedParts.Count == 0;
+            && unexpectedChangedParts.Count == 0
+            && sectionPreservationErrors.Count == 0;
 
         return new WordValidationReport(
             validationErrors.Count == 0,
@@ -41,19 +46,42 @@ public static class PackageValidationService
             sections,
             columns,
             sectPrCount,
+            snapshots,
+            sectionPreservationErrors,
             comparison,
             unexpectedChangedParts,
             passed);
     }
 
-    private static IReadOnlyList<string> ValidateOpenXml(string path)
+    public static IReadOnlyList<SectionStructuralSnapshot> ReadSectionSnapshots(string path)
     {
         using var document = WordprocessingDocument.Open(path, false);
-        var validator = new OpenXmlValidator(DocumentFormat.OpenXml.FileFormatVersions.Office2019);
-        return validator.Validate(document)
-            .Select(error => $"{error.Description} ({error.Path?.XPath})")
-            .Take(100)
+        var body = document.MainDocumentPart?.Document?.Body
+            ?? throw new InvalidDataException("The document has no main body.");
+        var sections = body.Descendants<Paragraph>()
+            .Select(paragraph => paragraph.ParagraphProperties?.SectionProperties)
+            .Where(section => section is not null)
+            .Cast<SectionProperties>()
+            .Concat(body.Elements<SectionProperties>())
             .ToArray();
+        return sections.Select((section, index) => new SectionStructuralSnapshot(index, CanonicalizeSection(section.OuterXml))).ToArray();
+    }
+
+    private static IReadOnlyList<string> ValidateOpenXml(string path)
+    {
+        try
+        {
+            using var document = WordprocessingDocument.Open(path, false);
+            var validator = new OpenXmlValidator(DocumentFormat.OpenXml.FileFormatVersions.Office2019);
+            return validator.Validate(document)
+                .Select(error => $"{error.Description} ({error.Path?.XPath})")
+                .Take(100)
+                .ToArray();
+        }
+        catch (Exception exception)
+        {
+            return [$"Unable to open package for schema validation: {exception.Message}"];
+        }
     }
 
     private static IReadOnlyList<string> FindDanglingRelationships(string packagePath)
@@ -77,7 +105,22 @@ public static class PackageValidationService
                 var target = (string?)relationship.Attribute("Target");
                 var targetMode = (string?)relationship.Attribute("TargetMode");
                 if (!string.IsNullOrWhiteSpace(id)) relationshipIds.Add(id);
-                if (string.IsNullOrWhiteSpace(target) || string.Equals(targetMode, "External", StringComparison.OrdinalIgnoreCase)) continue;
+                if (string.IsNullOrWhiteSpace(target))
+                {
+                    errors.Add($"{entry.FullName}: relationship {id ?? "(no id)"} has no target");
+                    continue;
+                }
+                if (string.Equals(targetMode, "External", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!Uri.TryCreate(target, UriKind.Absolute, out _))
+                        errors.Add($"{entry.FullName}: relationship {id ?? "(no id)"} is marked External but target is not an absolute URI");
+                    continue;
+                }
+                if (Uri.TryCreate(target, UriKind.Absolute, out var absolute) && !string.Equals(absolute.Host, "package.local", StringComparison.OrdinalIgnoreCase))
+                {
+                    errors.Add($"{entry.FullName}: relationship {id ?? "(no id)"} targets an external URI without TargetMode=External");
+                    continue;
+                }
                 var resolvedTarget = ResolveRelationshipTarget(sourcePart, target);
                 if (!entries.ContainsKey(resolvedTarget))
                     errors.Add($"{entry.FullName}: relationship {id ?? "(no id)"} targets missing part {resolvedTarget}");
@@ -88,9 +131,15 @@ public static class PackageValidationService
         foreach (var entry in entries.Values.Where(IsXmlPart))
         {
             var partPath = entry.FullName;
-            if (!relationshipIdsBySource.TryGetValue(partPath, out var knownIds)) continue;
             var xml = LoadXml(entry);
-            foreach (var attribute in xml.Descendants().Attributes().Where(IsRelationshipReference))
+            var references = xml.Descendants().Attributes().Where(IsRelationshipReference).ToArray();
+            if (references.Length == 0) continue;
+            if (!relationshipIdsBySource.TryGetValue(partPath, out var knownIds))
+            {
+                errors.Add($"{partPath}: relationship part {RelationshipPartFor(partPath)} is missing despite relationship reference(s)");
+                continue;
+            }
+            foreach (var attribute in references)
             {
                 if (!knownIds.Contains(attribute.Value))
                     errors.Add($"{partPath}: {attribute.Name.LocalName} references missing relationship {attribute.Value}");
@@ -187,6 +236,55 @@ public static class PackageValidationService
         var baseUri = new Uri($"http://package.local/{sourcePart}", UriKind.Absolute);
         return new Uri(baseUri, target).AbsolutePath.TrimStart('/');
     }
+
+    private static string RelationshipPartFor(string sourcePart)
+    {
+        var slash = sourcePart.LastIndexOf('/');
+        return slash < 0
+            ? $"_rels/{sourcePart}.rels"
+            : $"{sourcePart[..slash]}/_rels/{sourcePart[(slash + 1)..]}.rels";
+    }
+
+    private static IReadOnlyList<string> CompareSectionSnapshots(
+        IReadOnlyList<SectionStructuralSnapshot>? baseline,
+        IReadOnlyList<SectionStructuralSnapshot> candidate)
+    {
+        if (baseline is null) return [];
+        var errors = new List<string>();
+        if (baseline.Count != candidate.Count)
+            errors.Add($"section structure count changed: expected {baseline.Count}, found {candidate.Count}");
+        foreach (var original in baseline)
+        {
+            var current = candidate.FirstOrDefault(snapshot => snapshot.Index == original.Index);
+            if (current is null || !string.Equals(current.CanonicalXml, original.CanonicalXml, StringComparison.Ordinal))
+                errors.Add($"section structure changed at index {original.Index}");
+        }
+        return errors;
+    }
+
+    private static string CanonicalizeSection(string xml)
+    {
+        var root = XElement.Parse(xml, LoadOptions.PreserveWhitespace);
+        var builder = new StringBuilder();
+        AppendCanonical(root, builder);
+        return builder.ToString();
+    }
+
+    private static void AppendCanonical(XElement element, StringBuilder builder)
+    {
+        builder.Append('<').Append(element.Name.NamespaceName).Append('|').Append(element.Name.LocalName);
+        foreach (var attribute in element.Attributes().OrderBy(attribute => attribute.Name.NamespaceName, StringComparer.Ordinal).ThenBy(attribute => attribute.Name.LocalName, StringComparer.Ordinal))
+            builder.Append(' ').Append(attribute.Name.NamespaceName).Append('|').Append(attribute.Name.LocalName).Append('=').Append(Escape(attribute.Value));
+        builder.Append('>');
+        foreach (var node in element.Nodes())
+        {
+            if (node is XElement child) AppendCanonical(child, builder);
+            else if (node is XText text) builder.Append(Escape(text.Value));
+        }
+        builder.Append("</>");
+    }
+
+    private static string Escape(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("<", "\\<", StringComparison.Ordinal).Replace("=", "\\=", StringComparison.Ordinal);
 
     private static void Add(IDictionary<string, List<string>> values, string? value, string location)
     {

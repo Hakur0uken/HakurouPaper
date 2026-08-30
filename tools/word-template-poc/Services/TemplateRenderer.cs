@@ -84,55 +84,65 @@ public static class TemplateRenderer
                         AnchorIssues: targetResolution.Issues);
                 }
 
-                Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? throw new InvalidOperationException("Output path has no parent directory."));
-                File.Copy(templatePath, outputPath, true);
-                var existingIds = DocxFragmentImporter.ReadExistingPackageIds(outputPath);
-
-                using (var template = WordprocessingDocument.Open(outputPath, true))
-                using (var fragment = WordprocessingDocument.Open(fragmentPath, false))
+                var outputDirectory = Path.GetDirectoryName(outputPath) ?? throw new InvalidOperationException("Output path has no parent directory.");
+                Directory.CreateDirectory(outputDirectory);
+                var temporaryOutputPath = Path.Combine(outputDirectory, $".{Path.GetFileName(outputPath)}.{Guid.NewGuid():N}.tmp.docx");
+                var validationReportPath = Path.Combine(outputDirectory, $"{Path.GetFileNameWithoutExtension(outputPath)}.validation.json");
+                var temporaryReportPath = Path.Combine(outputDirectory, $".{Path.GetFileName(validationReportPath)}.{Guid.NewGuid():N}.tmp.json");
+                try
                 {
-                    var mainPart = template.MainDocumentPart
-                        ?? throw new InvalidDataException("The template has no MainDocumentPart.");
-                    var writableResolution = TemplateAnchors.Resolve(mainPart, mapping, bodyRequiresBlockContent: true);
-                    if (writableResolution.MissingTargets.Count > 0 || writableResolution.Issues.Count > 0)
-                        throw new InvalidDataException("Template targets changed unexpectedly after the preflight copy.");
-                    InsertPlainText(writableResolution.Targets[mapping.Title], semantic.Title ?? string.Empty, "Title", logs);
-                    InsertPlainText(writableResolution.Targets[mapping.Abstract], semantic.Abstract ?? string.Empty, "Abstract", logs);
-                    var imported = DocxFragmentImporter.ImportBodyChildren(fragment, template, analysis, existingIds, logs);
-                    InsertBody(writableResolution.Targets[mapping.Body], imported, logs);
-                    var mainDocument = mainPart.Document
-                        ?? throw new InvalidDataException("The template has no main document XML.");
-                    mainDocument.Save();
-                }
+                    File.Copy(templatePath, temporaryOutputPath, false);
+                    var existingIds = DocxFragmentImporter.ReadExistingPackageIds(temporaryOutputPath);
+                    var baselineSections = PackageValidationService.ReadSectionSnapshots(templatePath);
+                    using (var template = WordprocessingDocument.Open(temporaryOutputPath, true))
+                    using (var fragment = WordprocessingDocument.Open(fragmentPath, false))
+                    {
+                        var mainPart = template.MainDocumentPart
+                            ?? throw new InvalidDataException("The template has no MainDocumentPart.");
+                        var writableResolution = TemplateAnchors.Resolve(mainPart, mapping, bodyRequiresBlockContent: true);
+                        if (writableResolution.MissingTargets.Count > 0 || writableResolution.Issues.Count > 0)
+                            throw new InvalidDataException("Template targets changed unexpectedly after the preflight copy.");
+                        InsertPlainText(writableResolution.Targets[mapping.Title], semantic.Title ?? string.Empty, "Title", logs);
+                        InsertPlainText(writableResolution.Targets[mapping.Abstract], semantic.Abstract ?? string.Empty, "Abstract", logs);
+                        var body = mainPart.Document?.Body ?? throw new InvalidDataException("The template has no main document body.");
+                        var layout = SectionLayoutResolver.Resolve(body, GetAnchorElement(writableResolution.Targets[mapping.Body]));
+                        logs.Add($"[Layout] body section {layout.SectionIndex}; effective column width {layout.EffectiveColumnWidthTwips} twips");
+                        var imported = DocxFragmentImporter.ImportBodyChildren(fragment, template, analysis, existingIds, layout, logs);
+                        InsertBody(writableResolution.Targets[mapping.Body], imported, logs);
+                        mainPart.Document.Save();
+                    }
 
-                var preservation = PackageComparer.Compare(templatePath, outputPath);
-                var unexpectedChanges = PackagePreservationPolicy.FindUnexpectedChanges(preservation, analysis);
-                var validationReport = PackageValidationService.Validate(outputPath, preservation, unexpectedChanges);
-                var validationReportPath = Path.Combine(Path.GetDirectoryName(outputPath)!, "word-validation-report.json");
-                File.WriteAllText(validationReportPath, JsonSerializer.Serialize(validationReport, ReportSerializerOptions));
-                foreach (var change in preservation.ChangedParts) logs.Add($"[Preservation] changed: {change.Path}");
-                foreach (var addition in preservation.AddedParts) logs.Add($"[Preservation] added: {addition.Path}");
-                foreach (var removal in preservation.RemovedParts) logs.Add($"[Preservation] removed: {removal.Path}");
-                foreach (var unexpected in unexpectedChanges) logs.Add($"[Preservation] unexpected: {unexpected}");
-                logs.Add($"[Validation] OpenXmlValidator: {(validationReport.OpenXmlValidatorPassed ? "passed" : "failed")}");
-                logs.Add($"[Validation] relationship integrity: {(validationReport.Relationships.IsComplete ? "passed" : "failed")}");
-                logs.Add($"[Validation] developer report: {validationReportPath}");
-                logs.Add($"[Output] {outputPath}");
-                var success = validationReport.Passed;
-                return new RenderTemplateResult(
-                    success,
-                    outputPath,
-                    semantic,
-                    [],
-                    preservation,
-                    validationReport.OpenXmlValidationErrors,
-                    logs,
-                    success ? null : "Word package validation or preservation regression failed.",
-                    validationReport,
-                    validationReportPath,
-                    CapabilityReporter.Build(templatePath, analysis, preservation),
-                    analysis.Gaps,
-                    targetResolution.Issues);
+                    var preservation = PackageComparer.Compare(templatePath, temporaryOutputPath);
+                    var unexpectedChanges = PackagePreservationPolicy.FindUnexpectedChanges(preservation, analysis);
+                    var validationReport = PackageValidationService.Validate(temporaryOutputPath, preservation, unexpectedChanges, baselineSections);
+                    foreach (var change in preservation.ChangedParts) logs.Add($"[Preservation] changed: {change.Path}");
+                    foreach (var addition in preservation.AddedParts) logs.Add($"[Preservation] added: {addition.Path}");
+                    foreach (var removal in preservation.RemovedParts) logs.Add($"[Preservation] removed: {removal.Path}");
+                    foreach (var unexpected in unexpectedChanges) logs.Add($"[Preservation] unexpected: {unexpected}");
+                    logs.Add($"[Validation] OpenXmlValidator: {(validationReport.OpenXmlValidatorPassed ? "passed" : "failed")}");
+                    logs.Add($"[Validation] relationship integrity: {(validationReport.Relationships.IsComplete ? "passed" : "failed")}");
+                    if (!validationReport.Passed)
+                    {
+                        logs.Add("[Output] validation failed; temporary output discarded");
+                        return new RenderTemplateResult(false, null, semantic, [], preservation, validationReport.OpenXmlValidationErrors, logs,
+                            "Word package validation or preservation regression failed.", validationReport, null,
+                            CapabilityReporter.Build(templatePath, analysis, preservation, validationReport), analysis.Gaps, targetResolution.Issues);
+                    }
+
+                    File.WriteAllText(temporaryReportPath, JsonSerializer.Serialize(validationReport, ReportSerializerOptions));
+                    PublishAtomically(temporaryOutputPath, outputPath);
+                    PublishAtomically(temporaryReportPath, validationReportPath);
+                    logs.Add($"[Validation] developer report: {validationReportPath}");
+                    logs.Add($"[Output] {outputPath}");
+                    return new RenderTemplateResult(true, outputPath, semantic, [], preservation, validationReport.OpenXmlValidationErrors, logs,
+                        null, validationReport, validationReportPath,
+                        CapabilityReporter.Build(templatePath, analysis, preservation, validationReport), analysis.Gaps, targetResolution.Issues);
+                }
+                finally
+                {
+                    DeleteIfExists(temporaryOutputPath);
+                    DeleteIfExists(temporaryReportPath);
+                }
             }
             finally
             {
@@ -145,6 +155,9 @@ public static class TemplateRenderer
             return new RenderTemplateResult(false, null, null, [], null, [], logs, exception.Message);
         }
     }
+
+    private static OpenXmlElement GetAnchorElement(TemplateAnchors.TargetLocation location) =>
+        (OpenXmlElement?)location.ContentControl ?? location.Bookmark ?? throw new InvalidDataException("Missing template anchor.");
 
     private static void InsertPlainText(
         TemplateAnchors.TargetLocation location,
@@ -177,8 +190,6 @@ public static class TemplateRenderer
             var bookmark = location.Bookmark ?? throw new InvalidDataException("Missing bookmark target.");
             var paragraph = bookmark.Ancestors<Paragraph>().FirstOrDefault()
                 ?? throw new InvalidOperationException("The body bookmark must be inside a paragraph.");
-            if (paragraph.ParagraphProperties?.SectionProperties is not null)
-                throw new InvalidOperationException("The body bookmark cannot share a paragraph with a template section break.");
             foreach (var element in elements) paragraph.InsertBeforeSelf(element);
             paragraph.Remove();
         }
@@ -220,7 +231,29 @@ public static class TemplateRenderer
     {
         var paragraph = bookmark.Ancestors<Paragraph>().FirstOrDefault()
             ?? throw new InvalidOperationException("The bookmark target must be inside a paragraph.");
-        ReplaceParagraphText(paragraph, value);
+        var id = bookmark.Id?.Value ?? throw new InvalidOperationException("The bookmark target has no ID.");
+        var end = paragraph.ChildElements.OfType<BookmarkEnd>()
+            .SingleOrDefault(candidate => string.Equals(candidate.Id?.Value, id, StringComparison.Ordinal))
+            ?? throw new InvalidOperationException("The bookmark target has no direct matching end.");
+        var children = paragraph.ChildElements.ToArray();
+        var startIndex = Array.IndexOf(children, bookmark);
+        var endIndex = Array.IndexOf(children, end);
+        if (startIndex < 0 || endIndex <= startIndex)
+            throw new InvalidOperationException("The bookmark target is not a direct inline range.");
+        var sourceProperties = children.Skip(startIndex + 1).Take(endIndex - startIndex - 1)
+            .OfType<Run>().SelectMany(run => run.Elements<RunProperties>()).FirstOrDefault();
+        foreach (var child in children.Skip(startIndex + 1).Take(endIndex - startIndex - 1).ToArray()) child.Remove();
+        end.InsertBeforeSelf(CreateRun(value, sourceProperties?.CloneNode(true) as RunProperties));
+    }
+
+    private static void PublishAtomically(string temporaryPath, string finalPath) =>
+        // Both paths live in the destination directory. This is a rename, not
+        // a copy/delete publication sequence.
+        File.Move(temporaryPath, finalPath, overwrite: true);
+
+    private static void DeleteIfExists(string path)
+    {
+        if (File.Exists(path)) File.Delete(path);
     }
 
     private static void ReplaceParagraphText(Paragraph paragraph, string value)

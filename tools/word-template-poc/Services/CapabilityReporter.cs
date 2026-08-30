@@ -1,4 +1,5 @@
 using DocumentFormat.OpenXml.Packaging;
+using System.IO.Compression;
 using Hakurou.WordTemplatePoc.Models;
 
 namespace Hakurou.WordTemplatePoc.Services;
@@ -8,25 +9,25 @@ public static class CapabilityReporter
     public static CapabilityReport Build(
         string templatePath,
         DocxFragmentImporter.FragmentImportAnalysis analysis,
-        PackageComparison? comparison)
+        PackageComparison? comparison,
+        WordValidationReport? validation = null)
     {
         var supported = new HashSet<string>(analysis.SupportedFeatures, StringComparer.Ordinal);
         var preserved = new HashSet<string>(StringComparer.Ordinal);
         var unsupported = new HashSet<string>(analysis.Gaps.Select(gap => gap.Feature), StringComparer.Ordinal);
         var potentiallyLossy = new HashSet<string>(analysis.PotentiallyLossyFeatures, StringComparer.Ordinal);
 
+        var presentParts = ReadPartNames(templatePath);
         using (var document = WordprocessingDocument.Open(templatePath, false))
         {
             var main = document.MainDocumentPart;
             if (main?.Document?.Body is not null)
             {
-                supported.Add("sections");
-                if (main.Document.Body.Descendants<DocumentFormat.OpenXml.Wordprocessing.Columns>().Any()) supported.Add("columns");
+                // Sections and columns are template-owned structure. They are
+                // never advertised as importer-created capabilities.
                 if (main.Document.Descendants<DocumentFormat.OpenXml.Wordprocessing.BookmarkStart>().Any()) supported.Add("bookmark");
                 if (main.Document.Descendants<DocumentFormat.OpenXml.Wordprocessing.SdtElement>().Any()) supported.Add("content-control");
             }
-            if (main?.HeaderParts.Any() == true) supported.Add("header");
-            if (main?.FooterParts.Any() == true) supported.Add("footer");
         }
 
         if (comparison is not null)
@@ -34,12 +35,17 @@ public static class CapabilityReporter
             var touched = comparison.ChangedParts.Concat(comparison.AddedParts).Concat(comparison.RemovedParts)
                 .Select(part => part.Path)
                 .ToHashSet(StringComparer.Ordinal);
-            AddPreservedIfUntouched(preserved, touched, "styles", "word/styles.xml");
-            AddPreservedIfUntouched(preserved, touched, "settings", "word/settings.xml");
-            AddPreservedIfUntouched(preserved, touched, "header", "word/header");
-            AddPreservedIfUntouched(preserved, touched, "footer", "word/footer");
-            AddPreservedIfUntouched(preserved, touched, "theme", "word/theme/");
-            AddPreservedIfUntouched(preserved, touched, "custom XML", "customXml/");
+            AddPreservedIfPresentAndUntouched(preserved, presentParts, touched, "styles", "word/styles.xml");
+            AddPreservedIfPresentAndUntouched(preserved, presentParts, touched, "settings", "word/settings.xml");
+            AddPreservedIfPresentAndUntouched(preserved, presentParts, touched, "header", "word/header");
+            AddPreservedIfPresentAndUntouched(preserved, presentParts, touched, "footer", "word/footer");
+            AddPreservedIfPresentAndUntouched(preserved, presentParts, touched, "theme", "word/theme/");
+            AddPreservedIfPresentAndUntouched(preserved, presentParts, touched, "custom XML", "customXml/");
+            if (validation?.SectionPreservationErrors.Count == 0)
+            {
+                if (validation.SectionSnapshots.Count > 0) preserved.Add("sections");
+                if (validation.Columns.Any(column => column > 1)) preserved.Add("columns");
+            }
         }
 
         return new CapabilityReport(
@@ -49,9 +55,17 @@ public static class CapabilityReporter
             potentiallyLossy.OrderBy(value => value, StringComparer.Ordinal).ToArray());
     }
 
-    private static void AddPreservedIfUntouched(ISet<string> preserved, ISet<string> touched, string feature, string partPrefix)
+    private static HashSet<string> ReadPartNames(string path)
     {
-        if (!touched.Any(path => path.StartsWith(partPrefix, StringComparison.OrdinalIgnoreCase))) preserved.Add(feature);
+        using var archive = ZipFile.OpenRead(path);
+        return archive.Entries.Where(entry => !string.IsNullOrEmpty(entry.Name))
+            .Select(entry => entry.FullName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static void AddPreservedIfPresentAndUntouched(ISet<string> preserved, ISet<string> present, ISet<string> touched, string feature, string partPrefix)
+    {
+        if (present.Any(path => path.StartsWith(partPrefix, StringComparison.OrdinalIgnoreCase))
+            && !touched.Any(path => path.StartsWith(partPrefix, StringComparison.OrdinalIgnoreCase))) preserved.Add(feature);
     }
 }
 

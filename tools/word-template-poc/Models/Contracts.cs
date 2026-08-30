@@ -88,6 +88,13 @@ public sealed record RelationshipValidation(
     bool IsComplete,
     IReadOnlyList<string> DanglingRelationships);
 
+/// <summary>
+/// A canonical snapshot of an original <c>w:sectPr</c>.  It deliberately
+/// covers the whole element, including properties this PoC does not interpret
+/// (header/footer references, margins, grids, and vendor extensions).
+/// </summary>
+public sealed record SectionStructuralSnapshot(int Index, string CanonicalXml);
+
 public sealed record WordValidationReport(
     bool OpenXmlValidatorPassed,
     IReadOnlyList<string> OpenXmlValidationErrors,
@@ -96,6 +103,8 @@ public sealed record WordValidationReport(
     int SectionCount,
     IReadOnlyList<int> Columns,
     int SectPrCount,
+    IReadOnlyList<SectionStructuralSnapshot> SectionSnapshots,
+    IReadOnlyList<string> SectionPreservationErrors,
     PackageComparison PackageChanges,
     IReadOnlyList<string> UnexpectedChangedParts,
     bool Passed);
