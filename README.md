@@ -68,11 +68,16 @@ HakurouPaper 基于 Tauri 构建，保持较小的安装体积和较低的硬件
 
 **你的文稿始终属于你。**
 
-## 面向 AI / Agent 的未来
+## 面向 AI / Agent 的 Word 交付 Skills
 
 HakurouPaper 不绑定某一种 AI，也不要求你使用内置 Agent。你可以继续使用自己熟悉的 AI 或 Agent 进行写作与协作。
 
-长期来看，用户自己的 Agent 将通过 Hakurou Skills / 面向 Agent 的确定性文稿工具，完成修改、模板分析、导出和验证：Agent 负责理解与决策，Hakurou 负责确定性执行。相关接口和工具仍在开发与验证中。
+现已提供两项面向 Agent 的 Word 交付 Skill，分别覆盖精确模板导出与 MathType 公式转换：
+
+* **`hakurou-word-template-export`**：将 HakurouPaper Markdown 文稿按明确的映射填入指定 Word 模板，保留模板的 OOXML 结构，并进行包级验证，适用于高保真的学术 Word 模板交付。
+* **`hakurou-mathtype-batch`**：将已经导出、含 Word 原生公式（OMML）的 DOCX 转换为独立的 MathType 版本，公式保留为可编辑的 MathType OLE 对象；需安装 Microsoft Word 与 MathType 加载项。
+
+这让 Agent 可以负责理解模板与文稿、制定映射和检查结果，而 Hakurou Skill 负责确定性的导出与转换。更多面向 Agent 的文稿工具仍在持续完善。
 
 ## 下载
 
