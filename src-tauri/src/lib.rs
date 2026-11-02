@@ -1,15 +1,20 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use std::{
+    collections::HashMap,
     ffi::OsStr,
     fs::OpenOptions,
     io::{self, BufWriter, Write},
     path::{Path, PathBuf},
     process::Command,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tauri::Manager;
+use tauri::{Emitter, Manager, State};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -17,23 +22,29 @@ use std::os::windows::process::CommandExt;
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 mod git;
+mod git_accounts;
+mod remote_git;
 mod mathtype;
+mod open_requests;
 mod pandoc;
 mod word_template_poc;
 
 static IMAGE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static ATOMIC_WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-#[cfg(windows)]
-pub(crate) fn hidden_process_command(program: &OsStr) -> Command {
-    let mut command = Command::new(program);
-    command.creation_flags(CREATE_NO_WINDOW);
-    command
+/// Keeps native filesystem watchers alive for every Markdown document that is
+/// currently open in the renderer. Watching the parent directory survives the
+/// atomic replace used by `write_markdown`, which can otherwise invalidate a
+/// file-handle watcher on Windows.
+#[derive(Default)]
+struct MarkdownWatchState {
+    watchers: Mutex<HashMap<String, RecommendedWatcher>>,
 }
 
-#[cfg(not(windows))]
-pub(crate) fn hidden_process_command(program: &OsStr) -> Command {
-    Command::new(program)
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MarkdownFileChanged {
+    path: String,
 }
 
 #[derive(Serialize)]
@@ -67,10 +78,103 @@ struct SharePackage {
 }
 
 pub(crate) fn is_markdown_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| ["md", "markdown", "mdx"].iter().any(|allowed| extension.eq_ignore_ascii_case(allowed)))
+}
+
+/// Installed GUI builds have no parent console. Hide the short-lived helper
+/// processes used for document delivery so Pandoc and Python never create an
+/// empty Command Prompt window while exporting.
+#[cfg(windows)]
+pub(crate) fn hidden_process_command(program: &OsStr) -> Command {
+    let mut command = Command::new(program);
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
+#[cfg(not(windows))]
+pub(crate) fn hidden_process_command(program: &OsStr) -> Command {
+    Command::new(program)
+}
+
+fn is_document_change(event: &Event) -> bool {
     matches!(
-        path.extension().and_then(|extension| extension.to_str()),
-        Some("md" | "markdown" | "mdx")
+        event.kind,
+        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
     )
+}
+
+fn same_document_path(candidate: &Path, opened_path: &Path, normalized_opened_path: &Path) -> bool {
+    if candidate == opened_path {
+        return true;
+    }
+    std::fs::canonicalize(candidate)
+        .map(|path| path == normalized_opened_path)
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+fn watch_markdown_file(
+    app: tauri::AppHandle,
+    state: State<'_, MarkdownWatchState>,
+    path: String,
+) -> Result<(), String> {
+    let opened_path = PathBuf::from(&path);
+    if !is_markdown_path(&opened_path) {
+        return Err("只能监听 Markdown 文件。".into());
+    }
+    let directory = opened_path
+        .parent()
+        .filter(|directory| !directory.as_os_str().is_empty())
+        .ok_or("无法确定文稿所在目录。")?
+        .to_path_buf();
+    let normalized_opened_path = std::fs::canonicalize(&opened_path).unwrap_or_else(|_| opened_path.clone());
+    let mut watchers = state
+        .watchers
+        .lock()
+        .map_err(|_| "无法准备文稿文件监听。")?;
+    if watchers.contains_key(&path) {
+        return Ok(());
+    }
+
+    let emitted_path = path.clone();
+    let app_handle = app.clone();
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
+        let Ok(event) = event else { return };
+        if !is_document_change(&event)
+            || !event.paths.iter().any(|candidate| {
+                same_document_path(candidate, &opened_path, &normalized_opened_path)
+            })
+        {
+            return;
+        }
+        let _ = app_handle.emit(
+            "markdown-file-changed",
+            MarkdownFileChanged {
+                path: emitted_path.clone(),
+            },
+        );
+    })
+    .map_err(|error| format!("无法监听文稿文件：{error}"))?;
+    watcher
+        .watch(&directory, RecursiveMode::NonRecursive)
+        .map_err(|error| format!("无法监听文稿目录：{error}"))?;
+    watchers.insert(path, watcher);
+    Ok(())
+}
+
+#[tauri::command]
+fn unwatch_markdown_file(
+    state: State<'_, MarkdownWatchState>,
+    path: String,
+) -> Result<(), String> {
+    state
+        .watchers
+        .lock()
+        .map_err(|_| "无法停止文稿文件监听。")?
+        .remove(&path);
+    Ok(())
 }
 
 fn allow_asset_directory(app: &tauri::AppHandle, document_dir: &Path) -> Result<(), String> {
@@ -800,12 +904,27 @@ mod tests {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
+        .manage(open_requests::OpenRequests::from_process());
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        open_requests::enqueue(app, args.into_iter().skip(1), Path::new(&cwd));
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }
+    }));
+    builder
+        .manage(MarkdownWatchState::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            open_requests::take_open_markdown_requests,
             read_markdown,
             write_markdown,
+            watch_markdown_file,
+            unwatch_markdown_file,
             read_document_format,
             write_document_format,
             save_pasted_image,
@@ -827,6 +946,13 @@ pub fn run() {
             git::configure_version_identity,
             git::get_restore_preflight,
             git::restore_version,
+            remote_git::inspect_remote_repository,
+            remote_git::add_git_remote,
+            remote_git::bind_git_remote_account,
+            remote_git::sync_git_remote,
+            git_accounts::inspect_git_accounts,
+            git_accounts::save_git_account,
+            git_accounts::remove_git_account,
             pandoc::inspect_pandoc,
             pandoc::export_docx,
             word_template_poc::inspect_word_template,

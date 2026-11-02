@@ -3,6 +3,7 @@ import katex from "katex";
 import { parseDocumentSidecar } from "../../core/schema";
 import { parseDocumentFormatSettings } from "../../formatTypes";
 import { fontFamilyStack } from "../../appearanceSettings";
+import { handleDocumentLinkClick } from "../../documentLinks";
 import type { UiText } from "../../i18n";
 import { platform, type RevisionAssetManifest, type RevisionDescriptor, type RevisionTextSnapshot, type VersionChange, type VersionComparison } from "../../platform";
 import type { FeatureDocumentContext } from "../registry";
@@ -45,6 +46,13 @@ type HistoricalAssetCacheEntry = {
 };
 
 type HistoricalAssetResult = { key: string; url: string };
+
+/** A read-only comparison whose two snapshots are already available in memory. */
+export type DirectRevisionComparison = {
+  comparison: VersionComparison;
+  before: RevisionTextSnapshot;
+  after: RevisionTextSnapshot;
+};
 
 function touchFormulaCache(key: string, value: string | null) {
   formulaHtmlCache.delete(key);
@@ -365,13 +373,13 @@ const MarkdownBlock = memo(function MarkdownBlock({ node, assetContext, inlinePa
 });
 
 function revisionTitle(revision: RevisionDescriptor, text: UiText, side: "left" | "right") {
-  if (revision.kind === "currentDocument") return text.versionCurrentDocument;
+  if (revision.kind === "currentDocument") return revision.title ?? text.versionCurrentDocument;
   if (revision.kind === "empty") return text.versionNoSavedRevision;
   return revision.title ?? revision.shortId ?? (side === "left" ? text.versionPreviousVersion : text.versionThisVersion);
 }
 
 function CompactRevisionMeta({ revision, side, text }: { revision: RevisionDescriptor; side: "left" | "right"; text: UiText }) {
-  const role = revision.kind === "currentDocument" ? text.versionCurrentDocument : revision.kind === "empty" ? text.versionNoSavedRevision : side === "left" ? text.versionPreviousVersion : text.versionThisVersion;
+  const role = revision.kind === "currentDocument" ? revision.title ?? text.versionCurrentDocument : revision.kind === "empty" ? text.versionNoSavedRevision : side === "left" ? text.versionPreviousVersion : text.versionThisVersion;
   const details = revision.kind === "version" ? [revision.title ?? revision.shortId, revision.timestamp && new Date(revision.timestamp).toLocaleString()].filter(Boolean) : [];
   return <span className="rendered-revision-meta"><strong>{role}</strong>{details.map((detail, index) => <span key={index}>· {detail}</span>)}</span>;
 }
@@ -397,7 +405,7 @@ function findMatchingLocation(locations: RevisionLocation[], requested: Revision
   return locations.find((location) => location.id === requested.id) ?? locations.find((location) => location.kind === requested.kind && (matchingAnchor(location.anchorAfter, requested.anchorAfter) || matchingAnchor(location.anchorBefore, requested.anchorBefore) || matchingAnchor(location.editorAnchor, requested.editorAnchor)));
 }
 
-export function RenderedRevisionViewer({ document, versionId, initialLocation, text, onClose, onOpenAdvanced, onRestoreVersion }: { document: FeatureDocumentContext; versionId: string | null; initialLocation?: RevisionLocation | null; text: UiText; onClose: () => void; onOpenAdvanced: () => void; onRestoreVersion: (targetCommitId: string, targetTitle: string) => void }) {
+export function RenderedRevisionViewer({ document, versionId, initialLocation, text, onClose, onOpenAdvanced, onRestoreVersion, directComparison }: { document: FeatureDocumentContext; versionId: string | null; initialLocation?: RevisionLocation | null; text: UiText; onClose: () => void; onOpenAdvanced: () => void; onRestoreVersion: (targetCommitId: string, targetTitle: string) => void; directComparison?: DirectRevisionComparison }) {
   const [viewerState, setViewerState] = useState<ViewerState>({ kind: "loading" });
   const [modelState, setModelState] = useState<ModelState>({ kind: "idle" });
   const [activeLocationId, setActiveLocationId] = useState<string | null>(initialLocation?.id ?? null);
@@ -437,6 +445,10 @@ export function RenderedRevisionViewer({ document, versionId, initialLocation, t
     // Invalidate an in-flight worker result before asynchronous snapshot work begins.
     workerRequestRef.current += 1;
     setViewerState({ kind: "loading" }); setModelState({ kind: "idle" }); setOverviewReady(false);
+    if (directComparison) {
+      setViewerState({ kind: "ready", ...directComparison });
+      return;
+    }
     void (async () => {
       try {
         const { comparison, before } = await getRevisionComparisonData(document, versionId);
@@ -458,7 +470,7 @@ export function RenderedRevisionViewer({ document, versionId, initialLocation, t
         if (requestId === loadRequestRef.current) setViewerState({ kind: "ready", comparison, before, after });
       } catch (error) { if (requestId === loadRequestRef.current) setViewerState({ kind: "error", message: String(error) }); }
     })();
-  }, [document, versionId]);
+  }, [directComparison, document, versionId]);
 
   useEffect(() => {
     if (viewerState.kind !== "ready") return;
@@ -494,7 +506,7 @@ export function RenderedRevisionViewer({ document, versionId, initialLocation, t
 
   const revisionFormatDefaults = useMemo(() => viewerState.kind === "ready" ? parseDocumentFormatSettings(parseDocumentSidecar(viewerState.after.metadata).sidecar.format).defaults : undefined, [viewerState]);
   const formatStyle = useMemo<CSSProperties | undefined>(() => revisionFormatDefaults?.font ? { "--hakurou-document-font-family": fontFamilyStack(revisionFormatDefaults.font), "--hakurou-document-font-weight": String(revisionFormatDefaults.font.weight) } as CSSProperties : undefined, [revisionFormatDefaults]);
-  const beforeAssets = useMemo(() => viewerState.kind === "ready" && document.path ? createAssetContext(viewerState.before, document.path, document.assetFolder) : null, [document.assetFolder, document.path, viewerState]);
+  const beforeAssets = useMemo(() => viewerState.kind === "ready" && document.path ? createAssetContext(viewerState.before, document.path, document.assetFolder, directComparison ? document.path : null) : null, [directComparison, document.assetFolder, document.path, viewerState]);
   const afterAssets = useMemo(() => viewerState.kind === "ready" && document.path ? createAssetContext(viewerState.after, document.path, document.assetFolder, viewerState.after.revision.kind === "currentDocument" ? document.path : null) : null, [document.assetFolder, document.path, viewerState]);
   const targetVersion = viewerState.kind === "ready" ? viewerState.comparison.targetRevision : null;
   const settingsChanged = viewerState.kind === "ready" && viewerState.before.metadata !== viewerState.after.metadata;
@@ -507,11 +519,11 @@ export function RenderedRevisionViewer({ document, versionId, initialLocation, t
 
   useEffect(() => { if (!initialLocation) return; const location = findMatchingLocation(locations, initialLocation); if (location) navigateToLocation(location); }, [initialLocation, locations, navigateToLocation]);
 
-  return <section ref={viewerRef} className="rendered-revision-viewer" aria-label={text.versionRenderedPreview}>
-    <header className="rendered-revision-toolbar"><div className="rendered-revision-toolbar-main"><div className="rendered-revision-title-line"><h1>{text.versionRenderedPreview}</h1>{modelState.kind === "ready" && <span>{text.versionRenderedChangeCount(modelState.model.summary.changeGroups)}</span>}{locations.length > 0 && <span>{`${Math.max(1, activeLocationIndex + 1)} / ${locations.length}`}</span>}{settingsChanged && <span>{text.versionSettingsChanged}</span>}{document.isDirty && <span>{text.versionPreviewUnsavedContent}</span>}</div><div className="rendered-revision-actions">{locations.length > 0 && <><button type="button" onClick={() => navigateByOffset(-1)}>{text.versionPreviousChange}</button><button type="button" onClick={() => navigateByOffset(1)}>{text.versionNextChange}</button></>}<button type="button" onClick={onOpenAdvanced}>{text.versionAdvancedCompare}</button>{targetVersion?.kind === "version" && targetVersion.id && <button type="button" className="is-primary" onClick={() => onRestoreVersion(targetVersion.id!, revisionTitle(targetVersion, text, "right"))}>{text.versionRestoreThis}</button>}<button type="button" onClick={onClose}>{text.versionDiffClose}</button></div></div>{viewerState.kind === "ready" && <div className="rendered-revision-pair"><CompactRevisionMeta revision={viewerState.comparison.baseRevision} side="left" text={text} /><span className="rendered-revision-arrow" aria-hidden="true">→</span><CompactRevisionMeta revision={viewerState.comparison.targetRevision} side="right" text={text} /></div>}</header>
+  return <section ref={viewerRef} className="rendered-revision-viewer" aria-label={text.versionRenderedPreview} onClickCapture={handleDocumentLinkClick} onAuxClickCapture={handleDocumentLinkClick}>
+    <header className="rendered-revision-toolbar"><div className="rendered-revision-toolbar-main"><div className="rendered-revision-title-line"><h1>{text.versionRenderedPreview}</h1>{modelState.kind === "ready" && <span>{text.versionRenderedChangeCount(modelState.model.summary.changeGroups)}</span>}{locations.length > 0 && <span>{`${Math.max(1, activeLocationIndex + 1)} / ${locations.length}`}</span>}{settingsChanged && <span>{text.versionSettingsChanged}</span>}{document.isDirty && <span>{text.versionPreviewUnsavedContent}</span>}</div><div className="rendered-revision-actions">{locations.length > 0 && <><button type="button" onClick={() => navigateByOffset(-1)}>{text.versionPreviousChange}</button><button type="button" onClick={() => navigateByOffset(1)}>{text.versionNextChange}</button></>}{!directComparison && <button type="button" onClick={onOpenAdvanced}>{text.versionAdvancedCompare}</button>}{targetVersion?.kind === "version" && targetVersion.id && <button type="button" className="is-primary" onClick={() => onRestoreVersion(targetVersion.id!, revisionTitle(targetVersion, text, "right"))}>{text.versionRestoreThis}</button>}<button type="button" onClick={onClose}>{text.versionDiffClose}</button></div></div>{viewerState.kind === "ready" && <div className="rendered-revision-pair"><CompactRevisionMeta revision={viewerState.comparison.baseRevision} side="left" text={text} /><span className="rendered-revision-arrow" aria-hidden="true">→</span><CompactRevisionMeta revision={viewerState.comparison.targetRevision} side="right" text={text} /></div>}</header>
     {(viewerState.kind === "loading" || modelState.kind === "building") && <p className="rendered-revision-message">{text.versionRenderedLoading}</p>}
     {viewerState.kind === "error" && <p className="rendered-revision-message is-error">{viewerState.message}</p>}
-    {modelState.kind === "error" && <div className="rendered-revision-message is-error"><p>{text.versionRenderedFailed}</p><p>{modelState.message}</p><button type="button" onClick={onOpenAdvanced}>{text.versionAdvancedCompare}</button></div>}
+    {modelState.kind === "error" && <div className="rendered-revision-message is-error"><p>{text.versionRenderedFailed}</p><p>{modelState.message}</p>{!directComparison && <button type="button" onClick={onOpenAdvanced}>{text.versionAdvancedCompare}</button>}</div>}
     {modelState.kind === "ready" && beforeAssets && afterAssets && <div className="rendered-revision-content"><article className={`rendered-revision-document ${revisionFormatDefaults?.tableStyle === "three-line" ? "is-three-line" : ""} ${revisionFormatDefaults?.firstLineIndent ? "is-first-line-indented" : ""}`} style={formatStyle}>{modelState.model.blocks.map((block) => { const location = locationsByBlock.get(block.id); return <RevisionBlockView key={block.id} block={block} beforeAssets={beforeAssets} afterAssets={afterAssets} location={location} isNavigationTarget={location?.targetId === activeLocation?.targetId} text={text} />; })}</article>{overviewReady && <RevisionOverviewRuler locations={locations} activeLocationId={activeLocationId} onNavigate={navigateToLocation} scrollContainer={viewerRef.current} />}</div>}
   </section>;
 }

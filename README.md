@@ -68,6 +68,12 @@ HakurouPaper 基于 Tauri 构建，保持较小的安装体积和较低的硬件
 
 **你的文稿始终属于你。**
 
+## 远程协作（试验中）
+
+开发版新增独立的远程协作入口：读取已有 Git 仓库信息、添加 GitHub / Gitee 仓库地址、检查更新、快进获取更新和显式上传当前分支。仓库创建、成员邀请和首次 `git clone` 仍在外部完成。
+
+首版使用 Git 凭据，无需注册第三方应用、部署授权服务或准备域名。Windows 版可保存 Gitee / GitHub 的 HTTPS 用户名与密码或令牌，秘密保存在 Windows 凭据管理器；账号按平台识别，多账号可为仓库单独选择。SSH 仓库沿用系统 SSH 身份。详见[远程协作使用说明](guides/remote-collaboration.md)。已完成真实 Gitee 仓库的 Git 传输测试，原生桌面完整交互及权限异常场景仍待验收；此入口仍属试验功能。
+
 ## 面向 AI / Agent 的 Word 交付 Skills
 
 HakurouPaper 不绑定某一种 AI，也不要求你使用内置 Agent。你可以继续使用自己熟悉的 AI 或 Agent 进行写作与协作。
@@ -89,6 +95,6 @@ HakurouPaper 不绑定某一种 AI，也不要求你使用内置 Agent。你可�
 
 * Hakurou Skills / 面向 Agent 的文稿工具
 * 精确 Word 模板与学术交付完善
-* Remote Git / GitHub 协作
+* Remote Git / GitHub / Gitee 协作与凭据认证验收
 * 长文档性能优化
 * 跨平台支持

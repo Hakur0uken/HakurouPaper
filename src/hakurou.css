@@ -38,6 +38,9 @@ button { font: inherit; }
 }
 
 .app-menu-list { display: flex; align-items: stretch; padding-left: 2px; }
+.app-startup { grid-template-rows: 34px minmax(0, 1fr); }
+.app-startup-brand { align-self: center; padding: 0 12px; font-size: 12px; }
+.app-startup-status { display: grid; place-items: center; color: #777269; font-size: 13px; }
 .app-brand-mark { display: grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; }
 .app-brand-mark svg { display: block; width: 25px; height: 25px; }
 .app-menu { position: relative; display: flex; }
@@ -426,6 +429,10 @@ button { font: inherit; }
 
 .editor-stage { --hakurou-document-font-family: Georgia, "Noto Serif SC", "Songti SC", serif; --hakurou-document-font-weight: 400; position: relative; min-width: 0; overflow-y: auto; padding: 64px max(44px, 8vw) 84px; }
 .writing-editor-root { position: relative; }
+.editor-stage.has-line-numbers { padding-left: max(116px, 8vw); }
+.source-line-numbers { position: absolute; top: 0; width: 64px; pointer-events: none; user-select: none; color: #918c83; font: 11px/18px Consolas, "Courier New", monospace; font-variant-numeric: tabular-nums; text-align: right; }
+.source-line-numbers > span { position: absolute; right: 0; white-space: nowrap; transform: translateY(-50%); }
+@media print { .source-line-numbers { display: none; } }
 .block-handle, .object-handle { position: fixed; z-index: 18; display: flex; align-items: center; justify-content: center; width: 38px; height: 25px; gap: 3px; border: 1px solid #dfdcd5; padding: 0 4px; color: #6f6b63; background: #fbfaf7; cursor: pointer; font-size: 13px; line-height: 1; }
 .block-handle { font-family: Georgia, "Times New Roman", serif; }
 .block-handle span { color: #aaa59b; font-family: "Microsoft YaHei UI", sans-serif; font-size: 12px; letter-spacing: -2px; }
@@ -544,6 +551,8 @@ button { font: inherit; }
 
 .statusbar { display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-top: 1px solid #e4e1da; color: #938e85; background: #f4f3ef; font-size: 11px; }
 .save-state { display: inline-flex; align-items: center; gap: 6px; }
+.external-change-status { border: 1px solid #bd8a43; padding: 1px 5px; color: #8a5a18; background: #fff7e8; cursor: pointer; font: inherit; font-size: 10px; line-height: 1.35; }
+.external-change-status:hover { background: #f9ead0; }
 .status-document-stats { display: inline-flex; align-items: center; gap: 6px; }
 .save-state-dot { width: 6px; height: 6px; border-radius: 50%; background: #6f966f; }
 .save-state-dot.is-dirty { background: #bd5d54; }
@@ -556,6 +565,12 @@ button { font: inherit; }
 .close-confirm-actions button:hover { background: #e9e7e1; }
 .close-confirm-actions .is-danger { border-color: #bd5d54; color: #a54e46; }
 .close-confirm-actions .is-danger:hover { color: #fff; background: #bd5d54; }
+.external-change-dialog { width: min(100%, 450px); }
+.external-change-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.external-change-actions button { border: 1px solid #d8d5ce; padding: 6px 10px; color: #555149; background: transparent; cursor: pointer; font-size: 12px; }
+.external-change-actions button:hover { background: #e9e7e1; }
+.external-change-actions .is-danger { border-color: #bd5d54; color: #a54e46; }
+.external-change-actions .is-danger:hover { color: #fff; background: #bd5d54; }
 .font-settings-dialog { width: min(100%, 420px); border: 1px solid #d7d4cd; padding: 22px; color: #36342f; background: #fbfaf7; box-shadow: 0 12px 34px rgba(38, 37, 33, .14); }
 .font-settings-dialog h2 { margin: 0; font-size: 16px; font-weight: 600; }
 .font-settings-dialog > p { margin: 10px 0 18px; color: #716c63; font-size: 12px; line-height: 1.6; }

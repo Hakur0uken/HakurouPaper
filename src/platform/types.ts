@@ -1,4 +1,5 @@
 import type { AssetV1 } from "../core/schema";
+import type { RemoteGitService } from "./remoteTypes";
 
 export type PlatformCapabilities = {
   richClipboard: boolean;
@@ -307,8 +308,13 @@ export type ImportedClipboardAsset = {
 };
 
 export interface FileService {
+  /** Resolves after subscribing and processing the initial batch of open requests. */
+  onOpenMarkdownRequested(listener: (path: string) => Promise<void>): Promise<() => void>;
   readMarkdown(path: string): Promise<string>;
   writeMarkdown(path: string, content: string): Promise<void>;
+  watchMarkdownFile(path: string): Promise<void>;
+  unwatchMarkdownFile(path: string): Promise<void>;
+  onMarkdownFileChanged(listener: (path: string) => void): Promise<() => void>;
   readDocumentFormat(documentPath: string, assetFolder: string | null): Promise<StoredDocumentFormat | null>;
   writeDocumentFormat(documentPath: string, assetFolder: string | null, content: string): Promise<StoredDocumentFormat>;
   exportSharePackage(input: { documentPath: string; content: string; assetFolder: string | null; formatContent: string; destinationDir: string }): Promise<SharePackage>;
@@ -386,4 +392,5 @@ export type PlatformServices = {
   window: WindowService;
   links: LinkService;
   versionControl: VersionControlService;
+  remoteGit: RemoteGitService;
 };

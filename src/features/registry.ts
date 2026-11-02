@@ -22,6 +22,9 @@ export type FeatureWorkspaceProps = {
   document: FeatureDocumentContext;
   text: UiText;
   onSaveDocument: () => Promise<boolean>;
+  hasUnsavedDocuments: boolean;
+  /** Reconcile files after an explicit disk operation without discarding edits. */
+  onDiskDocumentsChanged: (changedPaths: string[]) => Promise<void>;
   showRevisionChanges: boolean;
   onShowRevisionChangesChange: (enabled: boolean) => void;
   onVersionStateChanged: () => void;

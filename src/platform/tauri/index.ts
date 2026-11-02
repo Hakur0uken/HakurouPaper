@@ -4,6 +4,7 @@ import { tauriAssets } from "./assets";
 import { tauriDialogs } from "./dialogs";
 import { tauriFiles } from "./files";
 import { tauriVersionControl } from "./git";
+import { tauriRemoteGit } from "./remoteGit";
 import { tauriLinks } from "./links";
 import { tauriWindow } from "./window";
 
@@ -15,4 +16,5 @@ export const tauriPlatform: PlatformServices = {
   window: tauriWindow,
   links: tauriLinks,
   versionControl: tauriVersionControl,
+  remoteGit: tauriRemoteGit,
 };

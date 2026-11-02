@@ -8,6 +8,7 @@ import { history } from "@milkdown/plugin-history";
 import { listener, listenerCtx } from "@milkdown/plugin-listener";
 import { nord } from "@milkdown/theme-nord";
 import { EditorControls } from "./EditorControls";
+import { SourceLineNumbers } from "./editor/SourceLineNumbers";
 import { featureRegistry, releaseHistoricalAssetsForDocument, releaseRevisionDataForDocument, RenderedRevisionViewer, VersionDiffViewer, type FeatureDocumentContext } from "./features";
 import { uiText, type UiLanguage, type UiText } from "./i18n";
 import { OutlineRailIcon } from "./ui/RailIcons";
@@ -15,6 +16,7 @@ import { createImageAssetPlugins } from "./editor/image";
 import { formulaPlugins } from "./math";
 import { HAKUROU_SCHEMA_VERSION, collectDocumentImageAssets, createDocumentSchema, parseDocumentSidecar, serializeDocumentSidecar, type AssetV1, type DocumentV1 } from "./core/schema";
 import { markdownPastePlugin } from "./markdownPaste";
+import { handleDocumentLinkClick } from "./documentLinks";
 import { platform, type RestoreStrategy, type VersionChange, type VersionRecord } from "./platform";
 import { spreadsheetTablePastePlugin } from "./spreadsheetTablePaste";
 import { createTableDecorationPlugin, setTableDefaultStyle, tableDefaultStylePluginKey } from "./tableDecorations";
@@ -119,14 +121,34 @@ type DocumentTab = {
   editRevision: number;
   /** Last edit generation known to be fully written to Markdown and hakurou.json. */
   savedRevision: number;
+  /** Fingerprint of the Markdown content most recently confirmed on disk. */
+  diskFingerprint: string | null;
+  /** A newer on-disk revision kept aside while this tab has unsaved edits. */
+  externalChange: ExternalDocumentChange | null;
   assetFolder: string | null;
   document: DocumentV1;
   assets: AssetV1[];
   formatSettings: DocumentFormatSettings;
 };
 
+type LoadedDocument = {
+  content: string;
+  assetFolder: string | null;
+  document: DocumentV1;
+  assets: AssetV1[];
+  formatSettings: DocumentFormatSettings;
+  sidecarContent?: string;
+};
+
+type ExternalDocumentChange = LoadedDocument & {
+  fingerprint: string;
+  detectedAt: number;
+};
+
 type WritingEditorProps = {
   documentId: string;
+  markdown: string;
+  showLineNumbers: boolean;
   initialContent: string;
   documentLoadRevision: number;
   onContentChange: (documentId: string, markdown: string) => void;
@@ -154,7 +176,7 @@ type DocumentHeading = {
 };
 
 type PendingClose = { kind: "tab"; tabId: string } | { kind: "app" } | null;
-type ActiveVersionComparison = { initialPath: string | null; versionId: string | null; presentation: "rendered" | "source"; focusLocation?: RevisionLocation | null };
+type ActiveVersionComparison = { initialPath: string | null; versionId: string | null; presentation: "rendered" | "source"; focusLocation?: RevisionLocation | null; externalChange?: boolean };
 type RestoreDialog =
   | { kind: "unsaved"; targetCommitId: string; targetTitle: string }
   | { kind: "confirm"; targetCommitId: string; targetTitle: string }
@@ -178,6 +200,7 @@ type CustomFontDraft = {
 const recentFilesStorageKey = "hakurou.recent-files";
 const uiLanguageStorageKey = "hakurou.ui-language";
 const revisionChangesVisibleStorageKey = "hakurou.show-revision-changes";
+const lineNumbersVisibleStorageKey = "hakurou.show-line-numbers";
 
 function filenameFromPath(path: string) {
   return path.split(/[\\/]/).pop() ?? "未命名文稿";
@@ -199,6 +222,25 @@ function findAssetFolder(markdown: string) {
   return markdown.match(/\]\(\.\/assets\/([^/)]+)\//)?.[1] ?? null;
 }
 
+function sameDocumentPath(left: string, right: string) {
+  return left.replace(/\//g, "\\").toLocaleLowerCase() === right.replace(/\//g, "\\").toLocaleLowerCase();
+}
+
+async function loadDocumentFromDisk(path: string): Promise<LoadedDocument> {
+  const content = await platform.files.readMarkdown(path);
+  const assetFolder = findAssetFolder(content);
+  const storedFormat = await platform.files.readDocumentFormat(path, assetFolder);
+  const parsedSidecar = parseDocumentSidecar(storedFormat?.content);
+  return {
+    content,
+    assetFolder: storedFormat?.assetFolder ?? assetFolder,
+    document: parsedSidecar.sidecar.document,
+    assets: collectDocumentImageAssets(content, parsedSidecar.sidecar.assets),
+    formatSettings: parseDocumentFormatSettings(parsedSidecar.sidecar.format),
+    ...(storedFormat?.content ? { sidecarContent: storedFormat.content } : {}),
+  };
+}
+
 function createDocument(
   markdown = starterDocument,
   path: string | null = null,
@@ -215,10 +257,31 @@ function createDocument(
     isDirty: false,
     editRevision: 0,
     savedRevision: 0,
+    diskFingerprint: path ? documentContentFingerprint(markdown) : null,
+    externalChange: null,
     assetFolder: options.assetFolder ?? findAssetFolder(markdown),
     document: options.document ?? createDocumentSchema(),
     assets: options.assets ?? [],
     formatSettings: options.formatSettings ?? emptyDocumentFormatSettings(),
+  };
+}
+
+function replaceTabFromDisk(tab: DocumentTab, loaded: LoadedDocument): DocumentTab {
+  const loadedRevision = Math.max(tab.editRevision, tab.savedRevision) + 1;
+  return {
+    ...tab,
+    content: loaded.content,
+    initialContent: loaded.content,
+    documentLoadRevision: tab.documentLoadRevision + 1,
+    isDirty: false,
+    editRevision: loadedRevision,
+    savedRevision: loadedRevision,
+    diskFingerprint: documentContentFingerprint(loaded.content),
+    externalChange: null,
+    assetFolder: loaded.assetFolder,
+    document: loaded.document,
+    assets: loaded.assets,
+    formatSettings: loaded.formatSettings,
   };
 }
 
@@ -233,7 +296,7 @@ function countWords(markdown: string) {
   return cjkCharacters + latinWords;
 }
 
-function WritingEditor({ documentId, initialContent, documentLoadRevision, onContentChange, documentPath, assetFolder, assets, onAssetImported, onAssetResize, formatSettings, onFormatChange, onSelectionChange, text, tableStyle, firstLineIndent, showRevisionChanges, revisionLocations, revisionBaselineKey, onOpenRevisionPreview }: WritingEditorProps) {
+function WritingEditor({ documentId, markdown, showLineNumbers, initialContent, documentLoadRevision, onContentChange, documentPath, assetFolder, assets, onAssetImported, onAssetResize, formatSettings, onFormatChange, onSelectionChange, text, tableStyle, firstLineIndent, showRevisionChanges, revisionLocations, revisionBaselineKey, onOpenRevisionPreview }: WritingEditorProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [editorView, setEditorView] = useState<import("@milkdown/prose/view").EditorView | null>(null);
   const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(null);
@@ -360,13 +423,15 @@ function WritingEditor({ documentId, initialContent, documentLoadRevision, onCon
   }, [editorView, onOpenRevisionPreview]);
 
   return <div className={`writing-editor-root${showRevisionChanges ? " is-showing-revision-changes" : ""}`}>
-    <div ref={mountRef} data-milkdown-root="true" />
+    <div ref={mountRef} data-milkdown-root="true" onClickCapture={handleDocumentLinkClick} onAuxClickCapture={handleDocumentLinkClick} />
+    {showLineNumbers && <SourceLineNumbers view={editorView} markdown={markdown} />}
     {showRevisionChanges && <RevisionOverviewRuler locations={revisionLocations} onNavigate={navigateRevisionLocation} scrollContainer={scrollContainer} className="editor-revision-overview" />}
     <EditorControls view={editorView} onSelectionChange={onSelectionChange} text={text} />
   </div>;
 }
 
 function App() {
+  const [startupReady, setStartupReady] = useState(false);
   const [tabs, setTabs] = useState<DocumentTab[]>(() => [createDocument()]);
   const [activeTabId, setActiveTabId] = useState(() => tabs[0]!.id);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -386,10 +451,16 @@ function App() {
   const [workingTreeEpoch, setWorkingTreeEpoch] = useState(0);
   const [activeVersionComparison, setActiveVersionComparison] = useState<ActiveVersionComparison | null>(null);
   const [showRevisionChanges, setShowRevisionChanges] = useState(() => window.localStorage.getItem(revisionChangesVisibleStorageKey) === "true");
+  const [showLineNumbers, setShowLineNumbers] = useState(() => window.localStorage.getItem(lineNumbersVisibleStorageKey) === "true");
   const [restoreDialog, setRestoreDialog] = useState<RestoreDialog>(null);
   const [isRestoringVersion, setIsRestoringVersion] = useState(false);
+  const [dismissedExternalChangeKey, setDismissedExternalChangeKey] = useState<string | null>(null);
   const menuListRef = useRef<HTMLElement>(null);
   const tabsRef = useRef(tabs);
+  const externalChangeTimersRef = useRef(new Map<string, number>());
+  const ownMarkdownWritesRef = useRef(new Map<string, { fingerprint: string; expiresAt: number }>());
+  const watchedMarkdownPathsRef = useRef(new Set<string>());
+  const markdownWatchQueueRef = useRef(Promise.resolve());
   const recentFilesMenuTimerRef = useRef<number | null>(null);
   const viewSubmenuTimerRef = useRef<number | null>(null);
   const editorStageRef = useRef<HTMLElement>(null);
@@ -399,6 +470,38 @@ function App() {
     [activeTabId, tabs],
   );
   const text = uiText[language];
+  const activeExternalChangeKey = activeDocument.externalChange ? `${activeDocument.id}\u0000${activeDocument.externalChange.fingerprint}` : null;
+  const externalChangeDialogVisible = Boolean(activeExternalChangeKey && activeExternalChangeKey !== dismissedExternalChangeKey);
+  const externalChangeComparison = useMemo(() => {
+    const external = activeDocument.externalChange;
+    if (!external) return undefined;
+    const localRevision = { kind: "currentDocument" as const, title: text.externalChangeLocalVersion };
+    const externalRevision = { kind: "currentDocument" as const, title: text.externalChangeDiskVersion };
+    const localMetadata = serializeDocumentSidecar({
+      schemaVersion: HAKUROU_SCHEMA_VERSION,
+      document: activeDocument.document,
+      assets: activeDocument.assets,
+      format: activeDocument.formatSettings,
+    });
+    const localAssets = activeDocument.assets.map((asset) => ({
+      path: asset.preview?.path ?? asset.source.path,
+      mimeType: asset.preview?.mimeType ?? asset.source.mimeType ?? "image/*",
+    }));
+    const externalAssets = external.assets.map((asset) => ({
+      path: asset.preview?.path ?? asset.source.path,
+      mimeType: asset.preview?.mimeType ?? asset.source.mimeType ?? "image/*",
+    }));
+    return {
+      comparison: {
+        baseRevision: localRevision,
+        targetRevision: externalRevision,
+        changes: [],
+        summary: { changedFiles: 1, addedLines: 0, removedLines: 0, internalFiles: 0 },
+      },
+      before: { revision: localRevision, markdown: activeDocument.content, metadata: localMetadata, assets: localAssets },
+      after: { revision: externalRevision, markdown: external.content, ...(external.sidecarContent ? { metadata: external.sidecarContent } : {}), assets: externalAssets },
+    };
+  }, [activeDocument, text.externalChangeDiskVersion, text.externalChangeLocalVersion]);
   const activeFeature = featureRegistry.getSidebarContribution(activeFeatureId);
   const ActiveFeatureWorkspace = activeFeature?.Workspace;
   const featureDocument = useMemo<FeatureDocumentContext>(() => ({
@@ -436,6 +539,10 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem(revisionChangesVisibleStorageKey, String(showRevisionChanges));
   }, [showRevisionChanges]);
+
+  useEffect(() => {
+    window.localStorage.setItem(lineNumbersVisibleStorageKey, String(showLineNumbers));
+  }, [showLineNumbers]);
 
   useEffect(() => {
     writeApplicationAppearance(applicationAppearance);
@@ -589,47 +696,76 @@ function App() {
     });
   }, []);
 
-  const addOpenedDocument = useCallback((markdown: string, path: string, formatSettings: DocumentFormatSettings, assetFolder: string | null, documentSchema: DocumentV1, assets: AssetV1[]) => {
-    const existingDocument = tabs.find((tab) => tab.path === path);
+  const forgetRecentFile = useCallback((path: string) => {
+    setRecentFiles((currentFiles) => {
+      const nextFiles = currentFiles.filter((item) => !sameDocumentPath(item.path, path));
+      window.localStorage.setItem(recentFilesStorageKey, JSON.stringify(nextFiles));
+      return nextFiles;
+    });
+  }, []);
+
+  const addOpenedDocument = useCallback((loaded: LoadedDocument, path: string) => {
+    const currentTabs = tabsRef.current;
+    const existingDocument = currentTabs.find((tab) => tab.path && sameDocumentPath(tab.path, path));
     if (existingDocument) {
+      const fingerprint = documentContentFingerprint(loaded.content);
+      setTabs((currentTabs) => currentTabs.map((tab) => {
+        if (tab.id !== existingDocument.id) return tab;
+        if (!tab.isDirty) return tab.diskFingerprint === fingerprint ? tab : replaceTabFromDisk(tab, loaded);
+        if (fingerprint === tab.diskFingerprint) return tab.externalChange ? { ...tab, externalChange: null } : tab;
+        if (fingerprint === documentContentFingerprint(tab.content)) return { ...tab, diskFingerprint: fingerprint, externalChange: null };
+        return { ...tab, externalChange: { ...loaded, fingerprint, detectedAt: Date.now() } };
+      }));
       activateDocument(existingDocument.id);
       return;
     }
     const filename = filenameFromPath(path);
-    const document = createDocument(markdown, path, filename.replace(/\.(md|markdown|mdx)$/i, ""), { formatSettings, assetFolder, document: documentSchema, assets });
-    if (tabs.length === 1 && isPristineWelcomeDocument(tabs[0]!)) {
+    const document = createDocument(loaded.content, path, filename.replace(/\.(md|markdown|mdx)$/i, ""), {
+      formatSettings: loaded.formatSettings,
+      assetFolder: loaded.assetFolder,
+      document: loaded.document,
+      assets: loaded.assets,
+    });
+    if (currentTabs.length === 1 && isPristineWelcomeDocument(currentTabs[0]!)) {
       // Do not reuse the welcome tab's identity here. The editor deliberately
       // preserves its live ProseMirror state across routine prop changes, so a
       // reused ID would leave the welcome document rendered after opening a
       // real file.
+      tabsRef.current = [document];
       setTabs([document]);
       setActiveTabId(document.id);
       return;
     }
+    tabsRef.current = [...currentTabs, document];
     setTabs((currentTabs) => [...currentTabs, document]);
     setActiveTabId(document.id);
-  }, [activateDocument, tabs]);
+  }, [activateDocument]);
 
   const openDocumentPath = useCallback(async (path: string) => {
     try {
-      const markdown = await platform.files.readMarkdown(path);
-      const assetFolder = findAssetFolder(markdown);
-      const storedFormat = await platform.files.readDocumentFormat(path, assetFolder);
-      const parsedSidecar = parseDocumentSidecar(storedFormat?.content);
-      const assets = collectDocumentImageAssets(markdown, parsedSidecar.sidecar.assets);
-      addOpenedDocument(
-        markdown,
-        path,
-        parseDocumentFormatSettings(parsedSidecar.sidecar.format),
-        storedFormat?.assetFolder ?? assetFolder,
-        parsedSidecar.sidecar.document,
-        assets,
-      );
+      addOpenedDocument(await loadDocumentFromDisk(path), path);
       rememberRecentFile(path);
     } catch (error) {
+      forgetRecentFile(path);
       window.alert(`无法打开文稿：${String(error)}`);
     }
-  }, [addOpenedDocument, rememberRecentFile]);
+  }, [addOpenedDocument, forgetRecentFile, rememberRecentFile]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void platform.files.onOpenMarkdownRequested(openDocumentPath).then((cleanup) => {
+      if (disposed) cleanup();
+      else {
+        unlisten = cleanup;
+        setStartupReady(true);
+      }
+    }).catch((error) => {
+      console.error("Unable to subscribe to Markdown open requests", error);
+      if (!disposed) setStartupReady(true);
+    });
+    return () => { disposed = true; unlisten?.(); };
+  }, [openDocumentPath]);
 
   const handleOpen = useCallback(async () => {
     const selectedPath = await platform.dialogs.openMarkdown({
@@ -639,6 +775,52 @@ function App() {
     if (!selectedPath) return;
     await openDocumentPath(selectedPath);
   }, [openDocumentPath, text.markdown, text.openMarkdownDocument]);
+
+  const processExternalDocumentChange = useCallback(async (documentId: string, path: string) => {
+    let loaded: LoadedDocument;
+    try {
+      loaded = await loadDocumentFromDisk(path);
+    } catch {
+      // An editor may briefly replace a file through its own temporary path.
+      // A later native event will retry once the replacement is complete.
+      return;
+    }
+    const fingerprint = documentContentFingerprint(loaded.content);
+    const ownWrite = ownMarkdownWritesRef.current.get(path);
+    if (ownWrite && ownWrite.expiresAt < Date.now()) ownMarkdownWritesRef.current.delete(path);
+    if (ownWrite?.fingerprint === fingerprint && ownWrite.expiresAt >= Date.now()) {
+      setTabs((currentTabs) => currentTabs.map((tab) => (
+        tab.id === documentId && tab.path && sameDocumentPath(tab.path, path) && tab.diskFingerprint !== fingerprint
+          ? { ...tab, diskFingerprint: fingerprint, externalChange: tab.externalChange?.fingerprint === fingerprint ? null : tab.externalChange }
+          : tab
+      )));
+      return;
+    }
+    let changed = false;
+    setTabs((currentTabs) => currentTabs.map((tab) => {
+      if (tab.id !== documentId || !tab.path || !sameDocumentPath(tab.path, path)) return tab;
+      if (tab.diskFingerprint === fingerprint) return tab.externalChange ? { ...tab, externalChange: null } : tab;
+      if (fingerprint === documentContentFingerprint(tab.content)) {
+        changed = true;
+        return { ...tab, diskFingerprint: fingerprint, externalChange: null };
+      }
+      changed = true;
+      if (!tab.isDirty) return replaceTabFromDisk(tab, loaded);
+      if (tab.externalChange?.fingerprint === fingerprint) return tab;
+      return { ...tab, externalChange: { ...loaded, fingerprint, detectedAt: Date.now() } };
+    }));
+    if (changed) setWorkingTreeEpoch((epoch) => epoch + 1);
+  }, []);
+
+  const reloadDocumentFromDisk = useCallback(async (documentId: string, path: string) => {
+    const loaded = await loadDocumentFromDisk(path);
+    setTabs((currentTabs) => currentTabs.map((tab) => (
+      tab.id === documentId && tab.path && sameDocumentPath(tab.path, path)
+        ? replaceTabFromDisk(tab, loaded)
+        : tab
+    )));
+    setWorkingTreeEpoch((epoch) => epoch + 1);
+  }, []);
 
   const handleSave = useCallback(async () => {
     const documentId = activeDocument.id;
@@ -657,10 +839,30 @@ function App() {
       // editRevision and are intentionally left dirty when this save completes.
       const savingDocument = tabsRef.current.find((tab) => tab.id === documentId) ?? activeDocument;
       const savingRevision = savingDocument.editRevision;
+      if (savingDocument.externalChange) {
+        setDismissedExternalChangeKey(null);
+        return false;
+      }
+      if (savingDocument.path && sameDocumentPath(savingDocument.path, targetPath)) {
+        try {
+          const diskContent = await platform.files.readMarkdown(targetPath);
+          if (documentContentFingerprint(diskContent) !== savingDocument.diskFingerprint) {
+            await processExternalDocumentChange(documentId, targetPath);
+            setDismissedExternalChangeKey(null);
+            return false;
+          }
+        } catch {
+          // A missing file will be handled by the native watcher if it is
+          // recreated. Saving a document that was deliberately removed is
+          // still allowed as a normal save-as-place operation.
+        }
+      }
       const formatSettings = {
         ...savingDocument.formatSettings,
         documentFingerprint: documentContentFingerprint(savingDocument.content),
       };
+      const savingFingerprint = documentContentFingerprint(savingDocument.content);
+      ownMarkdownWritesRef.current.set(targetPath, { fingerprint: savingFingerprint, expiresAt: Date.now() + 2_500 });
       const sidecarContent = serializeDocumentSidecar({
         schemaVersion: HAKUROU_SCHEMA_VERSION,
         document: savingDocument.document,
@@ -687,6 +889,8 @@ function App() {
           formatSettings,
           isDirty: false,
           savedRevision: savingRevision,
+          diskFingerprint: savingFingerprint,
+          externalChange: null,
         };
       }));
       setWorkingTreeEpoch((epoch) => epoch + 1);
@@ -698,35 +902,75 @@ function App() {
       window.alert(String(error));
       return false;
     }
-  }, [activeDocument, rememberRecentFile, text.markdown, text.saveMarkdownDocument, text.untitledDocument]);
+  }, [activeDocument, processExternalDocumentChange, rememberRecentFile, text.markdown, text.saveMarkdownDocument, text.untitledDocument]);
 
   const reloadActiveDocumentFromDisk = useCallback(async () => {
     if (!activeDocument.path) throw new Error("当前文稿尚未保存。");
-    const markdown = await platform.files.readMarkdown(activeDocument.path);
-    const assetFolder = findAssetFolder(markdown);
-    const storedFormat = await platform.files.readDocumentFormat(activeDocument.path, assetFolder);
-    const parsedSidecar = parseDocumentSidecar(storedFormat?.content);
-    const assets = collectDocumentImageAssets(markdown, parsedSidecar.sidecar.assets);
-    const formatSettings = parseDocumentFormatSettings(parsedSidecar.sidecar.format);
-    setTabs((currentTabs) => currentTabs.map((tab) => {
-      if (tab.id !== activeDocument.id) return tab;
-      const loadedRevision = Math.max(tab.editRevision, tab.savedRevision) + 1;
-      return {
-        ...tab,
-        content: markdown,
-        initialContent: markdown,
-        documentLoadRevision: tab.documentLoadRevision + 1,
-        assetFolder: storedFormat?.assetFolder ?? assetFolder,
-        document: parsedSidecar.sidecar.document,
-        assets,
-        formatSettings,
-        isDirty: false,
-        editRevision: loadedRevision,
-        savedRevision: loadedRevision,
-      };
+    await reloadDocumentFromDisk(activeDocument.id, activeDocument.path);
+  }, [activeDocument.id, activeDocument.path, reloadDocumentFromDisk]);
+
+  const reconcileOpenDocuments = useCallback(async (changedPaths: string[]) => {
+    const normalize = (path: string) => path.replace(/^\\\\\?\\/, "").replace(/\\/g, "/");
+    const changed = changedPaths.map(normalize);
+    const open = tabsRef.current.filter((tab) => {
+      if (!tab.path) return false;
+      const path = normalize(tab.path);
+      const directory = path.slice(0, path.lastIndexOf("/") + 1);
+      return changed.some((item) => sameDocumentPath(item, path) || (tab.assetFolder && sameDocumentPath(item.slice(0, `${directory}assets/${tab.assetFolder}/`.length), `${directory}assets/${tab.assetFolder}/`)));
+    });
+    await Promise.all(open.map(async (snapshot) => {
+      try {
+        const loaded = await loadDocumentFromDisk(snapshot.path!);
+        setTabs((current) => current.map((tab) => {
+          if (tab.id !== snapshot.id || tab.path !== snapshot.path) return tab;
+          if (!tab.isDirty) return replaceTabFromDisk(tab, loaded);
+          // Editing can continue while a network request is in flight. Preserve
+          // those edits and expose the updated disk copy for explicit review.
+          return { ...tab, externalChange: { ...loaded, fingerprint: documentContentFingerprint(loaded.content), detectedAt: Date.now() } };
+        }));
+      } catch { /* A removed/renamed file leaves its open tab intact. */ }
     }));
     setWorkingTreeEpoch((epoch) => epoch + 1);
-  }, [activeDocument.id, activeDocument.path]);
+  }, []);
+
+  const reloadExternalDocument = useCallback(async () => {
+    if (!activeDocument.path) return;
+    try {
+      await reloadDocumentFromDisk(activeDocument.id, activeDocument.path);
+      setDismissedExternalChangeKey(null);
+    } catch (error) {
+      window.alert(String(error));
+    }
+  }, [activeDocument.id, activeDocument.path, reloadDocumentFromDisk]);
+
+  const saveExternalDocumentCopy = useCallback(async () => {
+    if (!activeDocument.path || !activeDocument.externalChange) return;
+    const chosenPath = await platform.dialogs.saveMarkdown({
+      title: text.externalChangeSaveCopyTitle,
+      defaultPath: text.externalChangeCopyDefaultName(activeDocument.title),
+      filter: { name: text.markdown, extensions: ["md"] },
+    });
+    if (!chosenPath) return;
+    const targetPath = chosenPath.endsWith(".md") ? chosenPath : `${chosenPath}.md`;
+    if (sameDocumentPath(targetPath, activeDocument.path)) {
+      window.alert(text.externalChangeCopySamePath);
+      return;
+    }
+    try {
+      await platform.files.writeMarkdown(targetPath, activeDocument.content);
+      rememberRecentFile(targetPath);
+      window.alert(text.externalChangeCopySaved(targetPath));
+      await reloadExternalDocument();
+    } catch (error) {
+      window.alert(String(error));
+    }
+  }, [activeDocument, reloadExternalDocument, rememberRecentFile, text]);
+
+  const openExternalChangeComparison = useCallback(() => {
+    if (!activeDocument.externalChange) return;
+    setDismissedExternalChangeKey(activeExternalChangeKey);
+    setActiveVersionComparison({ initialPath: null, versionId: null, presentation: "rendered", externalChange: true });
+  }, [activeDocument.externalChange, activeExternalChangeKey]);
 
   const planVersionRestore = useCallback(async (targetCommitId: string, targetTitle: string) => {
     if (!activeDocument.path) return;
@@ -931,6 +1175,58 @@ function App() {
   }, [tabs]);
 
   useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void platform.files.onMarkdownFileChanged((path) => {
+      const tab = tabsRef.current.find((candidate) => candidate.path && sameDocumentPath(candidate.path, path));
+      if (!tab) return;
+      const currentTimer = externalChangeTimersRef.current.get(tab.id);
+      if (currentTimer !== undefined) window.clearTimeout(currentTimer);
+      externalChangeTimersRef.current.set(tab.id, window.setTimeout(() => {
+        externalChangeTimersRef.current.delete(tab.id);
+        void processExternalDocumentChange(tab.id, path);
+      }, 350));
+    }).then((dispose) => {
+      if (disposed) dispose();
+      else unlisten = dispose;
+    }).catch(console.error);
+    return () => {
+      disposed = true;
+      unlisten?.();
+      externalChangeTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+      externalChangeTimersRef.current.clear();
+    };
+  }, [processExternalDocumentChange]);
+
+  const watchedMarkdownPathKey = useMemo(() => [...new Set(
+    tabs.flatMap((tab) => tab.path ? [tab.path] : []),
+  )].sort((left, right) => left.localeCompare(right)).join("\u0000"), [tabs]);
+
+  useEffect(() => {
+    const nextPaths = new Set(watchedMarkdownPathKey ? watchedMarkdownPathKey.split("\u0000") : []);
+    markdownWatchQueueRef.current = markdownWatchQueueRef.current.catch(console.error).then(async () => {
+      const currentPaths = watchedMarkdownPathsRef.current;
+      for (const path of currentPaths) {
+        if (!nextPaths.has(path)) await platform.files.unwatchMarkdownFile(path);
+      }
+      for (const path of nextPaths) {
+        if (!currentPaths.has(path)) {
+          await platform.files.watchMarkdownFile(path);
+          const tab = tabsRef.current.find((candidate) => candidate.path && sameDocumentPath(candidate.path, path));
+          if (tab) await processExternalDocumentChange(tab.id, path);
+        }
+      }
+      watchedMarkdownPathsRef.current = nextPaths;
+    }).catch(console.error);
+  }, [processExternalDocumentChange, watchedMarkdownPathKey]);
+
+  useEffect(() => () => {
+    const paths = [...watchedMarkdownPathsRef.current];
+    watchedMarkdownPathsRef.current.clear();
+    void Promise.all(paths.map((path) => platform.files.unwatchMarkdownFile(path).catch(console.error)));
+  }, []);
+
+  useEffect(() => {
     let unlisten: (() => void) | undefined;
     void platform.window.onCloseRequested(() => {
       if (tabsRef.current.some((tab) => tab.isDirty)) setPendingClose({ kind: "app" });
@@ -1028,6 +1324,20 @@ function App() {
     <button type="button" className={fontPresetIsActive(selectedFont, "custom") ? "is-active" : ""} onClick={() => openCustomFontDialog(scope)}>{text.custom}</button>
   </>;
 
+  // Do not mount the welcome editor (or expose its tab and outline) until the
+  // initial file request has completed. Later file opens keep the workspace visible.
+  if (!startupReady) return <main className="app-shell app-startup" aria-busy="true">
+    <header className="app-menubar" onMouseDown={startWindowDragging} onDoubleClick={toggleWindowMaximize}>
+      <span className="app-startup-brand">HakurouPaper</span>
+      <div className="window-controls">
+        <button type="button" onClick={() => void handleWindowControl("minimize")} aria-label={text.minimize}>—</button>
+        <button type="button" onClick={() => void handleWindowControl("maximize")} aria-label={text.maximize}>□</button>
+        <button type="button" onClick={requestAppClose} aria-label={text.close}>×</button>
+      </div>
+    </header>
+    <div className="app-startup-status" role="status">{text.startupLoading}</div>
+  </main>;
+
   return (
     <main className="app-shell">
         <header className="app-menubar" onMouseDown={startWindowDragging} onDoubleClick={toggleWindowMaximize}>
@@ -1117,6 +1427,7 @@ function App() {
                 </div>
                 <span className="app-menu-separator" />
                 <button type="button" onClick={() => invokeMenuAction(toggleDocumentSidebar)}>{text.documentPanel} <kbd>Ctrl Shift B</kbd></button>
+                <button type="button" role="menuitemcheckbox" aria-checked={showLineNumbers} title={text.sourceLineNumbersDescription} className={showLineNumbers ? "is-active" : ""} onClick={() => invokeMenuAction(() => setShowLineNumbers((visible) => !visible))}><span>{text.sourceLineNumbers}</span><span aria-hidden="true">{showLineNumbers ? "✓" : ""}</span></button>
               </div>}
             </div>
             <div className="app-menu">
@@ -1177,7 +1488,7 @@ function App() {
             ))}
           </aside>
           {ActiveFeatureWorkspace ? <aside className="feature-sidebar" aria-label={activeFeature?.label(text)}>
-            <ActiveFeatureWorkspace document={featureDocument} text={text} onSaveDocument={handleSave} showRevisionChanges={showRevisionChanges} onShowRevisionChangesChange={setShowRevisionChanges} onVersionStateChanged={() => setHeadRevisionEpoch((epoch) => epoch + 1)} onOpenVersionDiff={openVersionDiff} onOpenVersionHistoryComparison={openVersionHistoryComparison} />
+            <ActiveFeatureWorkspace document={featureDocument} text={text} onSaveDocument={handleSave} hasUnsavedDocuments={tabs.some((tab) => tab.isDirty)} onDiskDocumentsChanged={reconcileOpenDocuments} showRevisionChanges={showRevisionChanges} onShowRevisionChangesChange={setShowRevisionChanges} onVersionStateChanged={() => setHeadRevisionEpoch((epoch) => epoch + 1)} onOpenVersionDiff={openVersionDiff} onOpenVersionHistoryComparison={openVersionHistoryComparison} />
           </aside> : sidebarOpen && <aside className="document-sidebar" aria-label={text.documentList}>
             {documentHeadings.length > 0 && <>
               <div className="sidebar-heading sidebar-outline-heading"><span>{text.outline}</span></div>
@@ -1202,10 +1513,12 @@ function App() {
               </div>
             </>}
           </aside>}
-          <section ref={editorStageRef} className="editor-stage" aria-label={text.editingArea} style={documentFontStyle} hidden={Boolean(activeVersionComparison)}>
+          <section ref={editorStageRef} className={`editor-stage${showLineNumbers ? " has-line-numbers" : ""}`} aria-label={text.editingArea} style={documentFontStyle} hidden={Boolean(activeVersionComparison)}>
               <WritingEditor
                 key={activeDocument.id}
                 documentId={activeDocument.id}
+                markdown={activeDocument.content}
+                showLineNumbers={showLineNumbers}
                 initialContent={activeDocument.initialContent}
                 documentLoadRevision={activeDocument.documentLoadRevision}
                 onContentChange={updateDocument}
@@ -1234,16 +1547,29 @@ function App() {
             onClose={closeVersionDiff}
             onOpenAdvanced={openAdvancedVersionComparison}
             onRestoreVersion={requestVersionRestore}
+            directComparison={activeVersionComparison.externalChange ? externalChangeComparison : undefined}
           />}
           {activeVersionComparison?.presentation === "source" && <VersionDiffViewer document={featureDocument} initialPath={activeVersionComparison.initialPath} versionId={activeVersionComparison.versionId} text={text} onClose={closeVersionDiff} onRestoreVersion={requestVersionRestore} />}
         </div>
 
         <footer className="statusbar">
-          <span className="save-state"><i className={`save-state-dot ${activeDocument.isDirty ? "is-dirty" : "is-saved"}`} />{activeDocument.isDirty ? text.unsavedChanges : activeDocument.path ? text.savedLocally : text.localDraft}{selectedText && <span className="selection-count">{text.selectedCount(countWords(selectedText))}</span>}</span>
+          <span className="save-state"><i className={`save-state-dot ${activeDocument.isDirty ? "is-dirty" : "is-saved"}`} />{activeDocument.isDirty ? text.unsavedChanges : activeDocument.path ? text.savedLocally : text.localDraft}{activeDocument.externalChange && <button type="button" className="external-change-status" onClick={() => setDismissedExternalChangeKey(null)}>{text.externalChangeStatus}</button>}{selectedText && <span className="selection-count">{text.selectedCount(countWords(selectedText))}</span>}</span>
           <span className="status-document-stats">
             <span>{text.documentStats(countWords(activeDocument.content), activeDocument.content.trim().length)}</span>
           </span>
         </footer>
+        {externalChangeDialogVisible && activeDocument.externalChange && <div className="close-confirm-backdrop" role="presentation">
+          <section className="close-confirm-dialog external-change-dialog" role="dialog" aria-modal="true" aria-labelledby="external-change-title">
+            <h2 id="external-change-title">{text.externalChangeDetected}</h2>
+            <p>{text.externalChangeDescription(activeDocument.title)}</p>
+            <div className="external-change-actions">
+              <button type="button" onClick={() => setDismissedExternalChangeKey(activeExternalChangeKey)}>{text.externalChangeContinueEditing}</button>
+              <button type="button" onClick={openExternalChangeComparison}>{text.externalChangeViewComparison}</button>
+              <button type="button" onClick={() => void saveExternalDocumentCopy()}>{text.externalChangeSaveCopy}</button>
+              <button type="button" className="is-danger" onClick={() => void reloadExternalDocument()}>{text.externalChangeReloadFromDisk}</button>
+            </div>
+          </section>
+        </div>}
         {pendingClose && <div className="close-confirm-backdrop" role="presentation">
           <section className="close-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="close-confirm-title">
             <h2 id="close-confirm-title">{pendingClose.kind === "app" ? text.unsavedDocuments : text.unsavedDocument}</h2>

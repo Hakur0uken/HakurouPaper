@@ -3,11 +3,40 @@ import { listen } from "@tauri-apps/api/event";
 import type { DocxExport, DocxExportProgress, FileService, MathTypeStatus, PandocStatus, SharePackage, StoredDocumentFormat, WordTemplatePocExport, WordTemplatePocInspectionResponse } from "../types";
 
 export const tauriFiles: FileService = {
+  async onOpenMarkdownRequested(listener) {
+    let disposed = false;
+    let queue = Promise.resolve();
+    const drain = () => {
+      queue = queue.then(async () => {
+        if (disposed) return;
+        const paths = await invoke<string[]>("take_open_markdown_requests");
+        // Once taken, finish this batch even if the subscription is cleaned up.
+        for (const path of paths) await listener(path);
+      }).catch((error) => console.error("Unable to receive Markdown open requests", error));
+      return queue;
+    };
+    // Subscribe before taking startup paths so second launches cannot fall
+    // between the initial fetch and event registration.
+    const unlisten = await listen("open-markdown-requested", drain);
+    // Resolve the subscription only after startup files have finished loading.
+    // The app uses this as its first-render barrier, not just listener readiness.
+    await drain();
+    return () => { disposed = true; unlisten(); };
+  },
   readMarkdown(path) {
     return invoke<string>("read_markdown", { path });
   },
   writeMarkdown(path, content) {
     return invoke("write_markdown", { path, content });
+  },
+  watchMarkdownFile(path) {
+    return invoke("watch_markdown_file", { path });
+  },
+  unwatchMarkdownFile(path) {
+    return invoke("unwatch_markdown_file", { path });
+  },
+  onMarkdownFileChanged(listener) {
+    return listen<{ path: string }>("markdown-file-changed", (event) => listener(event.payload.path));
   },
   readDocumentFormat(documentPath, assetFolder) {
     return invoke<StoredDocumentFormat | null>("read_document_format", { documentPath, assetFolder });

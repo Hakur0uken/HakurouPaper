@@ -1,0 +1,23 @@
+.remote-sync-workspace { min-width: 0; }
+.remote-sync-workspace .feature-workspace-header small { color: var(--muted, #777); font-size: 11px; }
+.remote-intro, .remote-section p { font-size: 12px; line-height: 1.65; color: var(--muted, #777); }
+.remote-section { border-top: 1px solid var(--line, #deded8); padding: 16px 0; }
+.remote-section h2 { font-size: 13px; margin: 0 0 12px; font-weight: 600; }
+.remote-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.remote-heading h2 { margin: 0; }
+.remote-section label { display: grid; gap: 6px; font-size: 12px; margin: 12px 0; }
+.remote-section input, .remote-section select { width: 100%; min-width: 0; border: 1px solid var(--line, #d2d2ca); border-radius: 3px; background: transparent; color: inherit; padding: 7px 8px; font: inherit; box-sizing: border-box; }
+.remote-section button { font: inherit; font-size: 12px; padding: 6px 9px; border: 1px solid var(--line, #d2d2ca); border-radius: 3px; background: transparent; color: inherit; cursor: pointer; }
+.remote-section button:hover:not(:disabled) { background: rgba(90, 110, 95, .08); }
+.remote-section button:disabled { opacity: .45; cursor: default; }
+.remote-path { overflow-wrap: anywhere; }
+.remote-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.remote-scope { border-left: 2px solid #8c9a8c; padding-left: 8px; }
+.remote-feedback { font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; color: #47755c; }
+.remote-feedback.is-error, .remote-section .remote-notice { color: #a25c3d; }
+.remote-confirm { margin-top: 12px; padding: 10px 0; border-top: 1px solid var(--line, #deded8); font-size: 12px; }
+.remote-confirm button + button { margin-left: 6px; }
+.remote-section .remote-add-toggle { margin-top: 16px; border: none; padding-left: 0; text-decoration: underline; }
+.remote-account { display: grid; gap: 5px; margin: 12px 0; font-size: 12px; }
+.remote-account small { color: var(--muted, #777); }
+.remote-account button { justify-self: start; }

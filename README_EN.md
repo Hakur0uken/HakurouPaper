@@ -65,6 +65,12 @@ Even if you later move to another Markdown-capable tool, you can continue openin
 
 **Your documents always belong to you.**
 
+## Remote collaboration (experimental)
+
+Connect an existing Git repository to GitHub or Gitee, check for updates, pull by fast-forward, and explicitly push committed history. Create repositories, invite members, and run the initial `git clone` outside the app.
+
+Windows can save HTTPS Git credentials in Windows Credential Manager, with separate accounts for each platform and repository. SSH continues to use your system identity. No OAuth app or authorization server is required. Real Gitee Git transport has been tested; complete native desktop interactions and permission failure scenarios still need acceptance testing. See the [remote collaboration guide (Chinese)](guides/remote-collaboration.md).
+
 ## Built for future AI / Agent workflows
 
 HakurouPaper is not tied to a particular AI and does not require an embedded Agent. You can keep using the AI or Agent tools you already prefer for writing and collaboration.
