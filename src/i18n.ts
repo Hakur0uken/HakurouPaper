@@ -1,6 +1,7 @@
 export type UiLanguage = "zh" | "en";
 
 export type UiText = {
+  startupLoading: string;
   file: string;
   edit: string;
   view: string;
@@ -26,6 +27,8 @@ export type UiText = {
   copy: string;
   paste: string;
   documentPanel: string;
+  sourceLineNumbers: string;
+  sourceLineNumbersDescription: string;
   documentFont: string;
   documentTable: string;
   documentIndent: string;
@@ -76,6 +79,19 @@ export type UiText = {
   unsavedChanges: string;
   savedLocally: string;
   localDraft: string;
+  externalChangeDetected: string;
+  externalChangeDescription: (title: string) => string;
+  externalChangeContinueEditing: string;
+  externalChangeViewComparison: string;
+  externalChangeReloadFromDisk: string;
+  externalChangeSaveCopy: string;
+  externalChangeSaveCopyTitle: string;
+  externalChangeCopyDefaultName: (title: string) => string;
+  externalChangeCopySaved: (path: string) => string;
+  externalChangeCopySamePath: string;
+  externalChangeLocalVersion: string;
+  externalChangeDiskVersion: string;
+  externalChangeStatus: string;
   selectedCount: (count: number) => string;
   documentStats: (words: number, characters: number) => string;
   documentDelivery: string;
@@ -309,6 +325,7 @@ export type UiText = {
 
 export const uiText: Record<UiLanguage, UiText> = {
   zh: {
+    startupLoading: "正在打开…",
     file: "文件",
     edit: "编辑",
     view: "查看",
@@ -334,6 +351,8 @@ export const uiText: Record<UiLanguage, UiText> = {
     copy: "复制",
     paste: "粘贴",
     documentPanel: "文档面板",
+    sourceLineNumbers: "显示源文件行号",
+    sourceLineNumbersDescription: "在左侧显示 Markdown 源文件行号；跨行内容显示起止行号",
     documentFont: "文档字体",
     documentTable: "文档表格",
     documentIndent: "文档缩进",
@@ -384,6 +403,19 @@ export const uiText: Record<UiLanguage, UiText> = {
     unsavedChanges: "尚未保存",
     savedLocally: "已保存",
     localDraft: "本地草稿",
+    externalChangeDetected: "文稿已在外部修改",
+    externalChangeDescription: (title) => `“${title}” 已在其他程序中保存了新内容。为防止覆盖，你的未保存修改尚未写入磁盘。`,
+    externalChangeContinueEditing: "继续编辑",
+    externalChangeViewComparison: "查看本地与外部的比较",
+    externalChangeReloadFromDisk: "重新加载外部版本",
+    externalChangeSaveCopy: "将本地修改另存为…",
+    externalChangeSaveCopyTitle: "保存本地修改副本",
+    externalChangeCopyDefaultName: (title) => `${title}（本地修改副本）.md`,
+    externalChangeCopySaved: (path) => `本地修改已另存为：\n${path}`,
+    externalChangeCopySamePath: "副本不能保存到当前文稿路径。",
+    externalChangeLocalVersion: "本地未保存修改",
+    externalChangeDiskVersion: "外部保存的版本",
+    externalChangeStatus: "外部版本待处理",
     selectedCount: (count) => `· 已选 ${count} 字`,
     documentStats: (words, characters) => `${words} 字 · ${characters} 字符`,
     documentDelivery: "文稿交付",
@@ -617,6 +649,7 @@ export const uiText: Record<UiLanguage, UiText> = {
     twoCharacters: "2 字符",
   },
   en: {
+    startupLoading: "Opening…",
     file: "File",
     edit: "Edit",
     view: "View",
@@ -642,6 +675,8 @@ export const uiText: Record<UiLanguage, UiText> = {
     copy: "Copy",
     paste: "Paste",
     documentPanel: "Document Panel",
+    sourceLineNumbers: "Show Source Line Numbers",
+    sourceLineNumbersDescription: "Show Markdown source line numbers on the left; multiline content shows a line range",
     documentFont: "Document Font",
     documentTable: "Document Table",
     documentIndent: "Document Indent",
@@ -692,6 +727,19 @@ export const uiText: Record<UiLanguage, UiText> = {
     unsavedChanges: "Unsaved",
     savedLocally: "Saved",
     localDraft: "Local draft",
+    externalChangeDetected: "Document changed outside HakurouPaper",
+    externalChangeDescription: (title) => `“${title}” was saved by another program. Your unsaved edits have not been written to disk, preventing an overwrite.`,
+    externalChangeContinueEditing: "Keep editing",
+    externalChangeViewComparison: "Compare local and external versions",
+    externalChangeReloadFromDisk: "Reload external version",
+    externalChangeSaveCopy: "Save local edits as copy…",
+    externalChangeSaveCopyTitle: "Save a copy of local edits",
+    externalChangeCopyDefaultName: (title) => `${title} (local edits).md`,
+    externalChangeCopySaved: (path) => `Local edits saved as:\n${path}`,
+    externalChangeCopySamePath: "The copy cannot use the current document path.",
+    externalChangeLocalVersion: "Local unsaved edits",
+    externalChangeDiskVersion: "Externally saved version",
+    externalChangeStatus: "External version pending",
     selectedCount: (count) => ` · ${count} selected`,
     documentStats: (words, characters) => `${words} words · ${characters} characters`,
     documentDelivery: "Document Delivery",

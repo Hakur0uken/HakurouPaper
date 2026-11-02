@@ -511,6 +511,155 @@ fn apply_display_equation_layout(docx_path: &Path, labels: &[Option<String>]) ->
     Ok(())
 }
 
+/// The editor renders ordinary Markdown tables at the available text width.
+/// Pandoc otherwise emits an automatic-width table, which Word is allowed to
+/// shrink to its content width. Keep the ordinary "current style" delivery
+/// consistent with the editor by setting a 100% preferred table width after
+/// Pandoc has generated the DOCX. A user-supplied reference document remains
+/// entirely in control of its own table policy.
+fn apply_current_style_table_widths(docx_path: &Path) -> Result<(), String> {
+    let replacement_path = docx_path.with_extension("current-style-tables.docx");
+    let source = File::open(docx_path)
+        .map_err(|error| format!("无法读取当前样式 Word 文档：{error}"))?;
+    let mut archive = ZipArchive::new(source)
+        .map_err(|error| format!("当前样式 Word 文档不是有效 DOCX：{error}"))?;
+    let target = File::create(&replacement_path)
+        .map_err(|error| format!("无法创建当前样式 Word 文档：{error}"))?;
+    let mut writer = ZipWriter::new(target);
+
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|error| format!("无法读取当前样式 Word 内容：{error}"))?;
+        let entry_name = entry.name().to_owned();
+        let options = FileOptions::default().compression_method(entry.compression());
+        if entry.is_dir() {
+            writer
+                .add_directory(&entry_name, options)
+                .map_err(|error| format!("无法写入当前样式 DOCX 文件夹：{error}"))?;
+            continue;
+        }
+        writer
+            .start_file(&entry_name, options)
+            .map_err(|error| format!("无法写入当前样式 DOCX 内容：{error}"))?;
+        if entry_name == "word/document.xml" {
+            let mut xml = String::new();
+            entry
+                .read_to_string(&mut xml)
+                .map_err(|error| format!("无法读取当前样式文档 XML：{error}"))?;
+            let (rewritten, _) = rewrite_current_style_table_widths(&xml)?;
+            writer
+                .write_all(rewritten.as_bytes())
+                .map_err(|error| format!("无法写入当前样式文档 XML：{error}"))?;
+        } else {
+            std::io::copy(&mut entry, &mut writer)
+                .map_err(|error| format!("无法复制当前样式 DOCX 内容：{error}"))?;
+        }
+    }
+
+    writer
+        .finish()
+        .map_err(|error| format!("无法完成当前样式 Word 文档：{error}"))?;
+    std::fs::copy(&replacement_path, docx_path)
+        .map_err(|error| format!("无法写入当前样式 Word 文档：{error}"))?;
+    let _ = std::fs::remove_file(&replacement_path);
+    Ok(())
+}
+
+fn rewrite_current_style_table_widths(xml: &str) -> Result<(String, usize), String> {
+    const FULL_WIDTH: &str = r#"<w:tblW w:w="5000" w:type="pct"/>"#;
+
+    let mut rewritten = String::with_capacity(xml.len() + 64);
+    let mut remaining = xml;
+    let mut transformed = 0usize;
+
+    while let Some(start) = find_word_element_start(remaining, "w:tblPr") {
+        rewritten.push_str(&remaining[..start]);
+        let opening_end = start
+            + remaining[start..]
+                .find('>')
+                .ok_or("Word 表格属性不完整，无法设置当前样式表格宽度。")?
+            + 1;
+        let opening = &remaining[start..opening_end];
+        if opening.trim_end().ends_with("/>") {
+            let opening_without_slash = opening[..opening.rfind("/>").expect("checked above")]
+                .trim_end();
+            rewritten.push_str(opening_without_slash);
+            rewritten.push('>');
+            rewritten.push_str(FULL_WIDTH);
+            rewritten.push_str("</w:tblPr>");
+            remaining = &remaining[opening_end..];
+        } else {
+            let properties_end = opening_end
+                + remaining[opening_end..]
+                    .find("</w:tblPr>")
+                    .ok_or("Word 表格属性不完整，无法设置当前样式表格宽度。")?
+                + "</w:tblPr>".len();
+            rewritten.push_str(&set_word_table_width(
+                &remaining[start..properties_end],
+                FULL_WIDTH,
+            )?);
+            remaining = &remaining[properties_end..];
+        }
+        transformed += 1;
+    }
+    rewritten.push_str(remaining);
+    Ok((rewritten, transformed))
+}
+
+fn find_word_element_start(value: &str, element: &str) -> Option<usize> {
+    let tag = format!("<{element}");
+    let mut search_from = 0usize;
+    while let Some(offset) = value[search_from..].find(&tag) {
+        let index = search_from + offset;
+        if matches!(
+            value.as_bytes().get(index + tag.len()),
+            Some(b'>') | Some(b'/') | Some(b' ') | Some(b'\t') | Some(b'\r') | Some(b'\n')
+        ) {
+            return Some(index);
+        }
+        search_from = index + tag.len();
+    }
+    None
+}
+
+fn set_word_table_width(properties: &str, full_width: &str) -> Result<String, String> {
+    let width_start = find_word_element_start(properties, "w:tblW");
+    if let Some(width_start) = width_start {
+        let width_tag_end = width_start
+            + properties[width_start..]
+                .find('>')
+                .ok_or("Word 表格宽度属性不完整，无法设置当前样式表格宽度。")?
+            + 1;
+        let width_end = if properties[width_start..width_tag_end]
+            .trim_end()
+            .ends_with("/>")
+        {
+            width_tag_end
+        } else {
+            width_tag_end
+                + properties[width_tag_end..]
+                    .find("</w:tblW>")
+                    .ok_or("Word 表格宽度属性不完整，无法设置当前样式表格宽度。")?
+                + "</w:tblW>".len()
+        };
+        Ok(format!(
+            "{}{}{}",
+            &properties[..width_start],
+            full_width,
+            &properties[width_end..]
+        ))
+    } else {
+        let insertion = properties.len() - "</w:tblPr>".len();
+        Ok(format!(
+            "{}{}{}",
+            &properties[..insertion],
+            full_width,
+            &properties[insertion..]
+        ))
+    }
+}
+
 fn rewrite_display_equation_paragraphs(xml: &str, labels: &[Option<String>]) -> (String, usize) {
     let (center_tab, right_tab) = word_equation_tab_positions(xml);
     let mut rewritten = String::with_capacity(xml.len() + labels.len() * 160);
@@ -1260,6 +1409,9 @@ fn export_docx_impl(
             formula_mode,
         ) {
             Ok(()) => {
+                if reference_doc_path.is_none() {
+                    apply_current_style_table_widths(&delivery_docx)?;
+                }
                 if let Some(labels) = &display_equation_labels {
                     apply_display_equation_layout(&delivery_docx, labels)?;
                 }
@@ -1292,6 +1444,9 @@ fn export_docx_impl(
                 run_pandoc(&stage_dir, &delivery_docx, effective_reference_doc_path, formula_mode).map_err(|preview_error| {
                     format!("使用 EMF 原图元导出失败：{emf_error}\n\n使用 PNG 预览重试仍失败：{preview_error}")
                 })?;
+                if reference_doc_path.is_none() {
+                    apply_current_style_table_widths(&delivery_docx)?;
+                }
                 if let Some(labels) = &display_equation_labels {
                     apply_display_equation_layout(&delivery_docx, labels)?;
                 }
@@ -1503,6 +1658,78 @@ mod tests {
         assert!(rewritten.contains("w:val=\"center\" w:pos=\"4513\""));
         assert!(rewritten.contains("w:val=\"right\" w:pos=\"9026\""));
         assert!(rewritten.contains("<w:t>(1)</w:t>"));
+    }
+
+    #[test]
+    fn current_style_tables_use_the_available_text_width() {
+        let xml = r#"<w:document><w:body><w:tbl><w:tblPr><w:tblStyle w:val="Table"/><w:tblW w:w="0" w:type="auto"/></w:tblPr><w:tblGrid><w:gridCol w:w="3960"/></w:tblGrid></w:tbl><w:tbl><w:tblPr><w:tblStyle w:val="Table"/></w:tblPr></w:tbl></w:body></w:document>"#;
+        let (rewritten, transformed) = rewrite_current_style_table_widths(xml)
+            .expect("table width rewrite should succeed");
+
+        assert_eq!(transformed, 2);
+        assert_eq!(rewritten.matches(r#"<w:tblW w:w="5000" w:type="pct"/>"#).count(), 2);
+        assert!(!rewritten.contains(r#"w:type="auto""#));
+    }
+
+    #[test]
+    fn current_style_table_width_rewrite_handles_nested_tables() {
+        let xml = r#"<w:document><w:body><w:tbl><w:tblPr/><w:tr><w:tc><w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/></w:tblPr></w:tbl></w:tc></w:tr></w:tbl></w:body></w:document>"#;
+        let (rewritten, transformed) = rewrite_current_style_table_widths(xml)
+            .expect("nested table width rewrite should succeed");
+
+        assert_eq!(transformed, 2);
+        assert_eq!(rewritten.matches(r#"<w:tblW w:w="5000" w:type="pct"/>"#).count(), 2);
+        assert!(!rewritten.contains(r#"w:type="auto""#));
+    }
+
+    #[test]
+    fn current_style_table_width_rewrites_the_docx_container_without_dropping_entries() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after the Unix epoch")
+            .as_nanos();
+        let stage = std::env::temp_dir().join(format!(
+            "hakurou-current-style-table-test-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&stage).expect("stage directory should be created");
+        let docx_path = stage.join("source.docx");
+        let source = File::create(&docx_path).expect("source docx should be created");
+        let mut writer = ZipWriter::new(source);
+        writer
+            .start_file("word/document.xml", FileOptions::default())
+            .expect("document entry should be created");
+        writer
+            .write_all(b"<w:document><w:body><w:tbl><w:tblPr><w:tblW w:w=\"0\" w:type=\"auto\"/></w:tblPr></w:tbl></w:body></w:document>")
+            .expect("document XML should be written");
+        writer
+            .start_file("word/media/keep.bin", FileOptions::default())
+            .expect("unrelated entry should be created");
+        writer
+            .write_all(b"keep")
+            .expect("unrelated entry should be written");
+        writer.finish().expect("source docx should be finished");
+
+        apply_current_style_table_widths(&docx_path)
+            .expect("current style table width rewrite should succeed");
+
+        let source = File::open(&docx_path).expect("rewritten docx should exist");
+        let mut archive = ZipArchive::new(source).expect("rewritten document should remain a ZIP");
+        let mut xml = String::new();
+        archive
+            .by_name("word/document.xml")
+            .expect("rewritten document XML should exist")
+            .read_to_string(&mut xml)
+            .expect("rewritten XML should be readable");
+        assert!(xml.contains(r#"<w:tblW w:w="5000" w:type="pct"/>"#));
+        let mut preserved = Vec::new();
+        archive
+            .by_name("word/media/keep.bin")
+            .expect("unrelated entry should remain")
+            .read_to_end(&mut preserved)
+            .expect("unrelated entry should be readable");
+        assert_eq!(preserved, b"keep");
+        let _ = std::fs::remove_dir_all(&stage);
     }
 
     #[test]

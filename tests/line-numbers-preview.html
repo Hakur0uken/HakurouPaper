@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="UTF-8"><title>Line number preview</title></head>
+<body><div id="root"></div><script type="module">
+// Browser-only fixture: replace native event subscriptions, leaving the real
+// application/editor/menu and preference persistence available for UI checks.
+import React from "react";
+import { createRoot } from "react-dom/client";
+import { platform } from "../src/platform/index.ts";
+import App from "../src/App.tsx";
+platform.window.onCloseRequested = async () => () => {};
+platform.files.onOpenMarkdownRequested = async () => () => {};
+platform.files.onMarkdownFileChanged = async () => () => {};
+createRoot(document.getElementById("root")).render(React.createElement(App));
+</script></body></html>

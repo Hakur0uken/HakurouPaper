@@ -8,6 +8,6 @@ export const tauriCapabilities: PlatformCapabilities = {
   // Kept as a legacy capability. Whether Git exists is checked at runtime.
   nativeGit: false,
   docxExport: true,
-  filesystemWatch: false,
+  filesystemWatch: true,
   multiWindow: true,
 };
