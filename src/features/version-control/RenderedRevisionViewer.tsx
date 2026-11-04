@@ -5,6 +5,7 @@ import { parseDocumentFormatSettings } from "../../formatTypes";
 import { fontFamilyStack } from "../../appearanceSettings";
 import { handleDocumentLinkClick } from "../../documentLinks";
 import type { UiText } from "../../i18n";
+import { RevisionAuthor } from "./RevisionAuthor";
 import { platform, type RevisionAssetManifest, type RevisionDescriptor, type RevisionTextSnapshot, type VersionChange, type VersionComparison } from "../../platform";
 import type { FeatureDocumentContext } from "../registry";
 import { RevisionOverviewRuler } from "./RevisionOverviewRuler";
@@ -380,19 +381,20 @@ function revisionTitle(revision: RevisionDescriptor, text: UiText, side: "left" 
 
 function CompactRevisionMeta({ revision, side, text }: { revision: RevisionDescriptor; side: "left" | "right"; text: UiText }) {
   const role = revision.kind === "currentDocument" ? revision.title ?? text.versionCurrentDocument : revision.kind === "empty" ? text.versionNoSavedRevision : side === "left" ? text.versionPreviousVersion : text.versionThisVersion;
-  const details = revision.kind === "version" ? [revision.title ?? revision.shortId, revision.timestamp && new Date(revision.timestamp).toLocaleString()].filter(Boolean) : [];
-  return <span className="rendered-revision-meta"><strong>{role}</strong>{details.map((detail, index) => <span key={index}>· {detail}</span>)}</span>;
+  const details = revision.kind === "version" ? [revision.title ?? revision.shortId].filter(Boolean) : [];
+  return <span className="rendered-revision-meta"><strong>{role}</strong>{details.map((detail, index) => <span key={index}>· {detail}</span>)}<RevisionAuthor revision={revision} text={text} /></span>;
 }
 
-const RevisionBlockView = memo(function RevisionBlockView({ block, beforeAssets, afterAssets, location, isNavigationTarget, text }: { block: RevisionBlock; beforeAssets: RevisionAssetContext; afterAssets: RevisionAssetContext; location?: RevisionLocation; isNavigationTarget: boolean; text: UiText }) {
+const RevisionBlockView = memo(function RevisionBlockView({ block, beforeAssets, afterAssets, location, isNavigationTarget, revision, text }: { block: RevisionBlock; beforeAssets: RevisionAssetContext; afterAssets: RevisionAssetContext; location?: RevisionLocation; isNavigationTarget: boolean; revision: RevisionDescriptor; text: UiText }) {
   const locationProps = location ? { id: location.targetId, "data-revision-location": location.id } : {};
   const targetClass = isNavigationTarget ? " is-navigation-target" : "";
+  const author = <RevisionAuthor revision={revision} text={text} />;
   if (block.changeKind === "unchanged" && block.after) return <div className="rendered-revision-block"><MarkdownBlock node={block.after} assetContext={afterAssets} /></div>;
-  if (block.changeKind === "added" && block.after) return <div {...locationProps} className={`rendered-revision-block is-added${targetClass}`}><span className="revision-change-label">{text.versionChangeAdded}</span><MarkdownBlock node={block.after} assetContext={afterAssets} /></div>;
-  if (block.changeKind === "removed" && block.before) return <div {...locationProps} className={`rendered-revision-block is-removed${targetClass}`}><span className="revision-change-label">{text.versionChangeDeleted}</span><MarkdownBlock node={block.before} assetContext={beforeAssets} /></div>;
+  if (block.changeKind === "added" && block.after) return <div {...locationProps} className={`rendered-revision-block is-added${targetClass}`}>{author}<span className="revision-change-label">{text.versionChangeAdded}</span><MarkdownBlock node={block.after} assetContext={afterAssets} /></div>;
+  if (block.changeKind === "removed" && block.before) return <div {...locationProps} className={`rendered-revision-block is-removed${targetClass}`}>{author}<span className="revision-change-label">{text.versionChangeDeleted}</span><MarkdownBlock node={block.before} assetContext={beforeAssets} /></div>;
   if (!block.before || !block.after) return null;
-  if (block.inlineDiff) return <div {...locationProps} className={`rendered-revision-block is-modified${targetClass}`}><MarkdownBlock node={block.after} assetContext={afterAssets} inlineParts={block.inlineDiff} /></div>;
-  return <div {...locationProps} className={`rendered-revision-block is-modified revision-block-replacement${targetClass}`}><span className="revision-change-label">{text.versionBefore}</span><div className="revision-block-before"><MarkdownBlock node={block.before} assetContext={beforeAssets} /></div><span className="revision-change-label">{text.versionAfter}</span><div className="revision-block-after"><MarkdownBlock node={block.after} assetContext={afterAssets} /></div></div>;
+  if (block.inlineDiff) return <div {...locationProps} className={`rendered-revision-block is-modified${targetClass}`}>{author}<MarkdownBlock node={block.after} assetContext={afterAssets} inlineParts={block.inlineDiff} /></div>;
+  return <div {...locationProps} className={`rendered-revision-block is-modified revision-block-replacement${targetClass}`}>{author}<span className="revision-change-label">{text.versionBefore}</span><div className="revision-block-before"><MarkdownBlock node={block.before} assetContext={beforeAssets} /></div><span className="revision-change-label">{text.versionAfter}</span><div className="revision-block-after"><MarkdownBlock node={block.after} assetContext={afterAssets} /></div></div>;
 });
 
 function matchingAnchor(left: RevisionBlockAnchor | undefined, right: RevisionBlockAnchor | undefined) {
@@ -524,6 +526,6 @@ export function RenderedRevisionViewer({ document, versionId, initialLocation, t
     {(viewerState.kind === "loading" || modelState.kind === "building") && <p className="rendered-revision-message">{text.versionRenderedLoading}</p>}
     {viewerState.kind === "error" && <p className="rendered-revision-message is-error">{viewerState.message}</p>}
     {modelState.kind === "error" && <div className="rendered-revision-message is-error"><p>{text.versionRenderedFailed}</p><p>{modelState.message}</p>{!directComparison && <button type="button" onClick={onOpenAdvanced}>{text.versionAdvancedCompare}</button>}</div>}
-    {modelState.kind === "ready" && beforeAssets && afterAssets && <div className="rendered-revision-content"><article className={`rendered-revision-document ${revisionFormatDefaults?.tableStyle === "three-line" ? "is-three-line" : ""} ${revisionFormatDefaults?.firstLineIndent ? "is-first-line-indented" : ""}`} style={formatStyle}>{modelState.model.blocks.map((block) => { const location = locationsByBlock.get(block.id); return <RevisionBlockView key={block.id} block={block} beforeAssets={beforeAssets} afterAssets={afterAssets} location={location} isNavigationTarget={location?.targetId === activeLocation?.targetId} text={text} />; })}</article>{overviewReady && <RevisionOverviewRuler locations={locations} activeLocationId={activeLocationId} onNavigate={navigateToLocation} scrollContainer={viewerRef.current} />}</div>}
+    {modelState.kind === "ready" && beforeAssets && afterAssets && <div className="rendered-revision-content"><article className={`rendered-revision-document ${revisionFormatDefaults?.tableStyle === "three-line" ? "is-three-line" : ""} ${revisionFormatDefaults?.firstLineIndent ? "is-first-line-indented" : ""}`} style={formatStyle}>{modelState.model.blocks.map((block) => { const location = locationsByBlock.get(block.id); return <RevisionBlockView key={block.id} block={block} revision={modelState.model.rightRevision} beforeAssets={beforeAssets} afterAssets={afterAssets} location={location} isNavigationTarget={location?.targetId === activeLocation?.targetId} text={text} />; })}</article>{overviewReady && <RevisionOverviewRuler locations={locations} activeLocationId={activeLocationId} onNavigate={navigateToLocation} scrollContainer={viewerRef.current} />}</div>}
   </section>;
 }

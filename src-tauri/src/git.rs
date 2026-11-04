@@ -1,5 +1,6 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 use std::{
     ffi::OsStr,
     fs,
@@ -190,8 +191,13 @@ pub struct VersionRecord {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionAuthorIdentity {
-    name: Option<String>,
-    email: Option<String>,
+    nickname: Option<String>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+struct NicknameProfile {
+    nickname: String,
+    author_id: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1486,13 +1492,13 @@ fn git_config_value(root: &Path, key: &str) -> Result<Option<String>, String> {
     Ok((!value.is_empty()).then_some(value))
 }
 
-fn ensure_version_identity(root: &Path) -> Result<(), String> {
-    if git_config_value(root, "user.name")?.is_some()
+fn ensure_version_identity(root: &Path, profile: Option<&NicknameProfile>) -> Result<(), String> {
+    if profile.is_some() || (git_config_value(root, "user.name")?.is_some()
         && git_config_value(root, "user.email")?.is_some()
-    {
+    ) {
         Ok(())
     } else {
-        Err("创建版本前需要设置版本作者信息。请先在 Git 中设置用户名和邮箱。".into())
+        Err("创建版本前请先设置个人昵称。".into())
     }
 }
 
@@ -1526,15 +1532,16 @@ fn stage_change(root: &Path, change: &VersionChange) -> Result<(), String> {
     Ok(())
 }
 
-fn create_version_impl(
+fn create_version_with_identity(
     context: &RepositoryContext,
     message: &str,
+    profile: Option<&NicknameProfile>,
 ) -> Result<VersionRecord, String> {
     let changes = changes_for_context(context)?;
     if changes.is_empty() {
         return Err("当前文稿相对于上一个版本没有修改。".into());
     }
-    ensure_version_identity(&context.root)?;
+    ensure_version_identity(&context.root, profile)?;
     for change in &changes {
         stage_change(&context.root, change)?;
     }
@@ -1551,11 +1558,16 @@ fn create_version_impl(
         }
         arguments.push(change.path.clone());
     }
-    let output = git_output_in_owned(&context.root, &arguments)?;
+    let output = commit_with_identity(&context.root, &arguments, profile)?;
     if !output.status.success() {
         return Err(format!("无法创建版本：{}", output_message(&output)));
     }
     version_record_for_id(&context.root, "HEAD")
+}
+
+#[cfg(test)]
+fn create_version_impl(context: &RepositoryContext, message: &str) -> Result<VersionRecord, String> {
+    create_version_with_identity(context, message, None)
 }
 
 fn history_for_context(
@@ -1580,46 +1592,64 @@ fn history_for_context(
     Ok(version_records_from_output(&output.stdout))
 }
 
-fn version_author_identity(root: &Path) -> Result<VersionAuthorIdentity, String> {
-    Ok(VersionAuthorIdentity {
-        name: git_config_value(root, "user.name")?,
-        email: git_config_value(root, "user.email")?,
-    })
-}
-
-fn validate_identity_value(value: &str, field_name: &str) -> Result<String, String> {
+fn validate_nickname(value: &str) -> Result<String, String> {
     let value = value.trim();
-    if value.is_empty() || value.chars().count() > 160 || value.chars().any(char::is_control) {
-        return Err(format!("请填写有效的版本作者{field_name}。"));
+    if value.is_empty() || value.chars().count() > 80 || value.chars().any(|character| character.is_control() || character == '<' || character == '>') {
+        return Err("请填写 1–80 个字符的个人昵称，不能包含换行、控制字符或尖括号。".into());
     }
     Ok(value.to_owned())
 }
 
-fn configure_version_identity_impl(
-    root: &Path,
-    name: &str,
-    email: &str,
-) -> Result<VersionAuthorIdentity, String> {
-    let name = validate_identity_value(name, "姓名")?;
-    let email = validate_identity_value(email, "邮箱")?;
-    if !email.contains('@') {
-        return Err("请填写有效的版本作者邮箱。".into());
+fn nickname_profile_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_local_data_dir().map_err(|_| "无法定位个人昵称设置目录。")?.join("version-profile.json"))
+}
+
+fn read_nickname_profile(path: &Path) -> Result<Option<NicknameProfile>, String> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err("无法读取个人昵称设置。".into()),
+    };
+    let mut profile: NicknameProfile = serde_json::from_slice(&bytes).map_err(|_| "个人昵称设置格式无效。")?;
+    profile.nickname = validate_nickname(&profile.nickname)?;
+    profile.author_id = uuid::Uuid::parse_str(&profile.author_id).map_err(|_| "个人昵称标识无效。")?.to_string();
+    Ok(Some(profile))
+}
+
+fn save_nickname_profile(path: &Path, nickname: &str) -> Result<NicknameProfile, String> {
+    // Serialise read/update/write so a repeated save keeps the same anonymous ID.
+    static PROFILE_WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = PROFILE_WRITE.lock().map_err(|_| "无法保存个人昵称设置。")?;
+    let nickname = validate_nickname(nickname)?;
+    let profile = NicknameProfile {
+        nickname,
+        author_id: read_nickname_profile(path)?.map(|profile| profile.author_id).unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+    };
+    fs::create_dir_all(path.parent().ok_or("个人昵称设置路径无效。")?).map_err(|_| "无法创建个人昵称设置目录。")?;
+    let bytes = serde_json::to_vec(&profile).map_err(|_| "无法保存个人昵称设置。")?;
+    crate::atomic_write(path, &bytes).map_err(|_| "无法保存个人昵称设置。")?;
+    Ok(profile)
+}
+
+fn require_nickname_profile(app: &tauri::AppHandle) -> Result<NicknameProfile, String> {
+    read_nickname_profile(&nickname_profile_path(app)?)?.ok_or_else(|| "请先在版本管理中设置个人昵称。".into())
+}
+
+fn apply_nickname_identity(command: &mut std::process::Command, profile: &NicknameProfile) {
+    let address = format!("{}@users.hakurou.invalid", profile.author_id);
+    for key in ["GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"] {
+        command.env(key, &profile.nickname);
     }
-    for (key, value) in [("user.name", name), ("user.email", email)] {
-        let output = git_output_in_owned(
-            root,
-            &[
-                "config".to_string(),
-                "--local".to_string(),
-                key.to_string(),
-                value,
-            ],
-        )?;
-        if !output.status.success() {
-            return Err("无法保存当前文稿的版本作者信息。".into());
-        }
+    for key in ["GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL", "EMAIL"] {
+        command.env(key, &address);
     }
-    version_author_identity(root)
+}
+
+fn commit_with_identity(root: &Path, arguments: &[String], profile: Option<&NicknameProfile>) -> Result<Output, String> {
+    let mut command = hidden_process_command(OsStr::new("git"));
+    command.arg("-C").arg(root).args(arguments);
+    if let Some(profile) = profile { apply_nickname_identity(&mut command, profile); }
+    command.output().map_err(|_| "无法启动 Git 创建版本。".into())
 }
 
 fn target_version_for_context(
@@ -1935,11 +1965,12 @@ fn restore_message(target: &VersionRecord) -> String {
     )
 }
 
-fn restore_version_impl(
+fn restore_version_with_identity(
     context: &RepositoryContext,
     target_id: &str,
     strategy: RestoreStrategy,
     safety_message: Option<&str>,
+    profile: Option<&NicknameProfile>,
 ) -> Result<RestoreVersionResult, String> {
     let target = target_version_for_context(context, target_id)?;
     let target_files = target_scope_files(context, &target)?;
@@ -1949,9 +1980,10 @@ fn restore_version_impl(
         match strategy {
             RestoreStrategy::SaveCurrentVersionFirst => {
                 let message = safety_message.ok_or("恢复前请填写版本说明。")?;
-                safety_version = Some(create_version_impl(
+                safety_version = Some(create_version_with_identity(
                     context,
                     &validate_version_message(message)?,
+                    profile,
                 )?);
             }
             RestoreStrategy::DiscardCurrentChanges => {}
@@ -1965,10 +1997,10 @@ fn restore_version_impl(
             already_equivalent: true,
         });
     }
-    ensure_version_identity(&context.root)?;
+    ensure_version_identity(&context.root, profile)?;
     let workspace = restore_workspace(&context.root)?;
     let result = apply_prepared_scope(context, &workspace, &target_files)
-        .and_then(|_| create_version_impl(context, &restore_message(&target)));
+        .and_then(|_| create_version_with_identity(context, &restore_message(&target), profile));
     let _ = fs::remove_dir_all(&workspace);
     let created_version = result?;
     Ok(RestoreVersionResult {
@@ -2216,13 +2248,15 @@ pub fn get_version_diff(
 
 #[tauri::command]
 pub fn create_version(
+    app: tauri::AppHandle,
     document_path: String,
     asset_folder: Option<String>,
     message: String,
 ) -> Result<VersionRecord, String> {
     let document = validate_document_path(&document_path)?;
     let context = repository_context(&document, asset_folder.as_deref())?;
-    create_version_impl(&context, &validate_version_message(&message)?)
+    let profile = require_nickname_profile(&app)?;
+    create_version_with_identity(&context, &validate_version_message(&message)?, Some(&profile))
 }
 
 #[tauri::command]
@@ -2238,24 +2272,26 @@ pub fn get_version_history(
 
 #[tauri::command]
 pub fn inspect_version_identity(
+    app: tauri::AppHandle,
     document_path: String,
     asset_folder: Option<String>,
 ) -> Result<VersionAuthorIdentity, String> {
     let document = validate_document_path(&document_path)?;
-    let context = repository_context(&document, asset_folder.as_deref())?;
-    version_author_identity(&context.root)
+    repository_context(&document, asset_folder.as_deref())?;
+    Ok(VersionAuthorIdentity { nickname: read_nickname_profile(&nickname_profile_path(&app)?)?.map(|profile| profile.nickname) })
 }
 
 #[tauri::command]
 pub fn configure_version_identity(
+    app: tauri::AppHandle,
     document_path: String,
     asset_folder: Option<String>,
-    name: String,
-    email: String,
+    nickname: String,
 ) -> Result<VersionAuthorIdentity, String> {
     let document = validate_document_path(&document_path)?;
-    let context = repository_context(&document, asset_folder.as_deref())?;
-    configure_version_identity_impl(&context.root, &name, &email)
+    repository_context(&document, asset_folder.as_deref())?;
+    let profile = save_nickname_profile(&nickname_profile_path(&app)?, &nickname)?;
+    Ok(VersionAuthorIdentity { nickname: Some(profile.nickname) })
 }
 
 #[tauri::command]
@@ -2276,6 +2312,7 @@ pub fn get_restore_preflight(
 
 #[tauri::command]
 pub fn restore_version(
+    app: tauri::AppHandle,
     document_path: String,
     asset_folder: Option<String>,
     target_commit_id: String,
@@ -2284,12 +2321,19 @@ pub fn restore_version(
 ) -> Result<RestoreVersionResult, String> {
     let document = validate_document_path(&document_path)?;
     let context = repository_context(&document, asset_folder.as_deref())?;
-    restore_version_impl(
+    let profile = require_nickname_profile(&app)?;
+    restore_version_with_identity(
         &context,
         &target_commit_id,
         strategy,
         safety_version_message.as_deref(),
+        Some(&profile),
     )
+}
+
+#[cfg(test)]
+fn restore_version_impl(context: &RepositoryContext, target_id: &str, strategy: RestoreStrategy, safety_message: Option<&str>) -> Result<RestoreVersionResult, String> {
+    restore_version_with_identity(context, target_id, strategy, safety_message, None)
 }
 
 #[cfg(test)]
@@ -2313,6 +2357,84 @@ mod tests {
             .unwrap_or_else(|_| path.to_path_buf())
             .to_string_lossy()
             .replace('\\', "/")
+    }
+
+    #[test]
+    fn nickname_profile_is_persistent_and_updates_keep_the_anonymous_identity() {
+        let directory = test_directory("nickname-profile");
+        let path = directory.join("settings").join("version-profile.json");
+        assert!(read_nickname_profile(&path).unwrap().is_none());
+        let first = save_nickname_profile(&path, "  小白  ").unwrap();
+        assert_eq!(first.nickname, "小白");
+        assert!(uuid::Uuid::parse_str(&first.author_id).is_ok());
+        assert_eq!(read_nickname_profile(&path).unwrap().unwrap().author_id, first.author_id);
+        let updated = save_nickname_profile(&path, "山岚").unwrap();
+        assert_eq!(updated.author_id, first.author_id);
+        assert_eq!(read_nickname_profile(&path).unwrap().unwrap().nickname, "山岚");
+        for invalid in ["", "  ", "a\nb", "<writer>"] { assert!(save_nickname_profile(&path, invalid).is_err()); }
+        assert!(save_nickname_profile(&path, &"字".repeat(81)).is_err());
+        assert_eq!(read_nickname_profile(&path).unwrap().unwrap().nickname, "山岚");
+        let public = serde_json::to_value(VersionAuthorIdentity { nickname: Some(updated.nickname) }).unwrap();
+        assert_eq!(public.as_object().unwrap().len(), 1);
+        assert!(public.get("email").is_none());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn nickname_commit_and_restore_do_not_reuse_personal_git_identity() {
+        let directory = test_directory("nickname-commit");
+        let root = directory.join("repo");
+        fs::create_dir_all(&root).unwrap();
+        assert!(git_output_in(&root, &["init"]).unwrap().status.success());
+        for key in ["user.name", "author.name", "committer.name"] {
+            assert!(git_output_in(&root, &["config", "--local", key, "Existing Personal Name"]).unwrap().status.success());
+        }
+        for key in ["user.email", "author.email", "committer.email"] {
+            assert!(git_output_in(&root, &["config", "--local", key, "private@example.invalid"]).unwrap().status.success());
+        }
+        let document = root.join("paper.md");
+        fs::write(&document, "before\n").unwrap();
+        let document = validate_document_path(document.to_str().unwrap()).unwrap();
+        let context = repository_context(&document, None).unwrap();
+        let original = create_version_impl(&context, "original").unwrap();
+        let profile_path = directory.join("profile.json");
+        let profile = save_nickname_profile(&profile_path, "小白").unwrap();
+        fs::write(&document, "after\n").unwrap();
+        let context = repository_context(&document, None).unwrap();
+        let version = create_version_with_identity(&context, "nickname version", Some(&profile)).unwrap();
+        let address = format!("{}@users.hakurou.invalid", profile.author_id);
+        assert_eq!(version.author_name.as_deref(), Some("小白"));
+        assert_eq!(version.author_email.as_deref(), Some(address.as_str()));
+        let fields = git_output_in(&root, &["log", "-1", "--format=%an%n%ae%n%cn%n%ce"]).unwrap();
+        assert_eq!(String::from_utf8_lossy(&fields.stdout).lines().collect::<Vec<_>>(), vec!["小白", address.as_str(), "小白", address.as_str()]);
+        assert_eq!(git_config_value(&root, "user.email").unwrap().as_deref(), Some("private@example.invalid"));
+        assert_eq!(version_record_for_id(&root, &original.id).unwrap().author_email, original.author_email);
+
+        let renamed = save_nickname_profile(&profile_path, "山岚").unwrap();
+        fs::write(&document, "local unsaved work\n").unwrap();
+        let restored = restore_version_with_identity(&context, &original.id, RestoreStrategy::SaveCurrentVersionFirst, Some("safety copy"), Some(&renamed)).unwrap();
+        assert_eq!(restored.created_version.unwrap().author_name.as_deref(), Some("山岚"));
+        for id in ["HEAD", "HEAD^"] {
+            let resolved = git_output_in(&root, &["rev-parse", id]).unwrap();
+            assert!(resolved.status.success());
+            let resolved = String::from_utf8_lossy(&resolved.stdout);
+            let record = version_record_for_id(&root, resolved.trim()).unwrap();
+            assert_eq!(record.author_name.as_deref(), Some("山岚"));
+            assert_eq!(record.author_email.as_deref(), Some(address.as_str()));
+        }
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn nickname_identity_overrides_author_and_committer_environment() {
+        let profile = NicknameProfile { nickname: "Writer".into(), author_id: uuid::Uuid::new_v4().to_string() };
+        let mut command = std::process::Command::new("git");
+        for key in ["GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL", "EMAIL"] { command.env(key, "private@example.invalid"); }
+        apply_nickname_identity(&mut command, &profile);
+        let env: std::collections::HashMap<_, _> = command.get_envs().map(|(key, value)| (key.to_string_lossy().into_owned(), value.unwrap().to_string_lossy().into_owned())).collect();
+        assert_eq!(env["GIT_AUTHOR_NAME"], "Writer");
+        assert_eq!(env["GIT_COMMITTER_NAME"], "Writer");
+        for key in ["GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL", "EMAIL"] { assert_eq!(env[key], format!("{}@users.hakurou.invalid", profile.author_id)); }
     }
 
     #[test]

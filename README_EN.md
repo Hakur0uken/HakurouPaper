@@ -67,7 +67,7 @@ Even if you later move to another Markdown-capable tool, you can continue openin
 
 ## Remote collaboration (experimental)
 
-Connect an existing Git repository to GitHub or Gitee, check for updates, pull by fast-forward, and explicitly push committed history. Create repositories, invite members, and run the initial `git clone` outside the app.
+Version management combines local history and remote collaboration: connect to GitHub or Gitee, create a version and upload it in one flow, or upload existing versions. Use File → Update working directory to pull fast-forward updates. Create repositories, invite members, and run the initial `git clone` outside the app.
 
 Windows can save HTTPS Git credentials in Windows Credential Manager, with separate accounts for each platform and repository. SSH continues to use your system identity. No OAuth app or authorization server is required. Real Gitee Git transport has been tested; complete native desktop interactions and permission failure scenarios still need acceptance testing. See the [remote collaboration guide (Chinese)](guides/remote-collaboration.md).
 

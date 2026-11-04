@@ -8,6 +8,7 @@ export type GitRemote = {
 export type RemoteRepository = {
   repositoryRoot: string; branch: string | null; hasCommits: boolean; dirty: boolean;
   remotes: GitRemote[]; stateToken: string; changedPaths: string[];
+  defaultRemote: string | null;
 };
 export type RemoteAction = "fetch" | "pull" | "push";
 export interface RemoteGitService {

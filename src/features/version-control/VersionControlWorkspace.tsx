@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { UiText } from "../../i18n";
 import { platform, type GitInstallationStatus, type VersionAuthorIdentity, type VersionChange, type VersionDocumentScope, type VersionRecord, type VersionRepositoryInfo } from "../../platform";
 import type { FeatureWorkspaceProps } from "../registry";
+import { RemoteSyncWorkspace } from "../remote-sync/RemoteSyncWorkspace";
+import "./versionIdentity.css";
 
 type VersionControlState =
   | { kind: "unsaved" }
@@ -41,12 +43,14 @@ function ScopeList({ scope, assetFolder, text }: { scope: VersionDocumentScope; 
   </ul>;
 }
 
-export function VersionControlWorkspace({ document, text, onSaveDocument, showRevisionChanges, onShowRevisionChangesChange, onVersionStateChanged, onOpenVersionDiff, onOpenVersionHistoryComparison }: FeatureWorkspaceProps) {
+export function VersionControlWorkspace(props: FeatureWorkspaceProps) {
+  const { document, text, onSaveDocument, repositoryBusy, runRepositoryOperation, showRevisionChanges, onShowRevisionChangesChange, onVersionStateChanged, onOpenVersionDiff, onOpenVersionHistoryComparison } = props;
   const [state, setState] = useState<VersionControlState>(() => document.path ? { kind: "checking" } : { kind: "unsaved" });
   const [changesState, setChangesState] = useState<ChangesState>({ kind: "idle" });
   const [historyState, setHistoryState] = useState<HistoryState>({ kind: "idle" });
   const [identity, setIdentity] = useState<VersionAuthorIdentity>({});
-  const [identityDraft, setIdentityDraft] = useState({ name: "", email: "" });
+  const [identityDraft, setIdentityDraft] = useState("");
+  const [editingIdentity, setEditingIdentity] = useState(false);
   const [isSavingIdentity, setIsSavingIdentity] = useState(false);
   const [identityMessage, setIdentityMessage] = useState<string | null>(null);
   const [isInitialising, setIsInitialising] = useState(false);
@@ -100,7 +104,7 @@ export function VersionControlWorkspace({ document, text, onSaveDocument, showRe
         : { kind: "error", message: String(historyResult.reason) });
       if (identityResult.status === "fulfilled") {
         setIdentity(identityResult.value);
-        setIdentityDraft({ name: identityResult.value.name ?? "", email: identityResult.value.email ?? "" });
+        setIdentityDraft(identityResult.value.nickname ?? "");
       } else {
         setIdentity({});
       }
@@ -115,19 +119,23 @@ export function VersionControlWorkspace({ document, text, onSaveDocument, showRe
 
   const enableVersionManagement = useCallback(async () => {
     if (!document.path) return;
+    const documentPath = document.path;
     setIsInitialising(true);
     try {
-      await platform.versionControl.initRepository({
-        documentPath: document.path,
-        assetFolder: document.assetFolder,
+      await runRepositoryOperation(async () => {
+        await platform.versionControl.initRepository({
+          documentPath,
+          assetFolder: document.assetFolder,
+        });
+        await inspect();
+        onVersionStateChanged();
       });
-      await inspect();
     } catch (error) {
       setState({ kind: "error", message: String(error) });
     } finally {
       setIsInitialising(false);
     }
-  }, [document.assetFolder, document.path, inspect]);
+  }, [document.assetFolder, document.path, inspect, onVersionStateChanged, runRepositoryOperation]);
 
   const openGitInstallPage = useCallback(async () => {
     try {
@@ -139,35 +147,38 @@ export function VersionControlWorkspace({ document, text, onSaveDocument, showRe
 
   const saveIdentity = useCallback(async () => {
     if (!document.path || isSavingIdentity) return;
+    const documentPath = document.path;
     setIsSavingIdentity(true);
     setIdentityMessage(null);
     try {
-      await platform.versionControl.configureIdentity({
-        documentPath: document.path,
-        assetFolder: document.assetFolder,
-        name: identityDraft.name,
-        email: identityDraft.email,
+      await runRepositoryOperation(async () => {
+        await platform.versionControl.configureIdentity({
+          documentPath,
+          assetFolder: document.assetFolder,
+          nickname: identityDraft.trim(),
+        });
+        setEditingIdentity(false);
+        await inspect();
       });
-      await inspect();
     } catch (error) {
       setIdentityMessage(String(error));
     } finally {
       setIsSavingIdentity(false);
     }
-  }, [document.assetFolder, document.path, identityDraft.email, identityDraft.name, inspect, isSavingIdentity]);
+  }, [document.assetFolder, document.path, identityDraft, inspect, isSavingIdentity, runRepositoryOperation]);
 
   const createVersion = useCallback(async () => {
-    if (!document.path || isCreatingVersion) return;
+    if (!document.path || isCreatingVersion) return false;
     const message = versionMessage.trim();
     if (!message) {
       setCreateMessage(text.versionMessageRequired);
-      return;
+      return false;
     }
     setCreateMessage(null);
     setIsCreatingVersion(true);
     try {
       const saved = await onSaveDocument();
-      if (!saved) return;
+      if (!saved) return false;
       await platform.versionControl.createVersion({
         documentPath: document.path,
         assetFolder: document.assetFolder,
@@ -177,8 +188,10 @@ export function VersionControlWorkspace({ document, text, onSaveDocument, showRe
       setVersionMessage("");
       setCreateMessage(text.versionCreated);
       await inspect();
+      return true;
     } catch (error) {
       setCreateMessage(String(error));
+      return false;
     } finally {
       setIsCreatingVersion(false);
     }
@@ -189,8 +202,9 @@ export function VersionControlWorkspace({ document, text, onSaveDocument, showRe
   // of hiding non-Markdown resource changes behind `isDocument`.
   const manuscriptChanges = changesState.kind === "ready" ? changesState.changes : [];
   const manuscriptChange = manuscriptChanges.find((change) => change.isDocument) ?? manuscriptChanges[0];
-  const hasIdentity = Boolean(identity.name && identity.email);
-  const canCreateVersion = hasIdentity && changesState.kind === "ready" && changesState.changes.length > 0 && versionMessage.trim().length > 0 && !isCreatingVersion;
+  const hasIdentity = Boolean(identity.nickname);
+  const hasDocumentChanges = document.isDirty || (changesState.kind === "ready" && changesState.changes.length > 0);
+  const canCreateVersion = hasIdentity && changesState.kind === "ready" && hasDocumentChanges && versionMessage.trim().length > 0 && !isCreatingVersion && !repositoryBusy;
 
   return <div className="feature-workspace version-control-workspace">
     <header className="feature-workspace-header">
@@ -229,7 +243,7 @@ export function VersionControlWorkspace({ document, text, onSaveDocument, showRe
         <p>{text.versionScope}</p>
         <ScopeList scope={state.scope} assetFolder={document.assetFolder} text={text} />
         <div className="version-control-actions">
-          <button type="button" className="is-primary" disabled={isInitialising} onClick={() => void enableVersionManagement()}>
+          <button type="button" className="is-primary" disabled={isInitialising || repositoryBusy} onClick={() => void enableVersionManagement()}>
             {isInitialising ? text.enablingVersionManagement : text.enableVersionManagement}
           </button>
         </div>
@@ -264,29 +278,33 @@ export function VersionControlWorkspace({ document, text, onSaveDocument, showRe
           </div>)}
       </section>
 
-      {!hasIdentity && <section className="version-control-card version-author-card">
+      <section className="version-control-card version-author-card">
         <h2>{text.versionAuthorInformation}</h2>
-        <label className="version-description-field"><span>{text.versionAuthorName}</span><input value={identityDraft.name} onChange={(event) => setIdentityDraft((current) => ({ ...current, name: event.target.value }))} /></label>
-        <label className="version-description-field"><span>{text.versionAuthorEmail}</span><input type="email" value={identityDraft.email} onChange={(event) => setIdentityDraft((current) => ({ ...current, email: event.target.value }))} /></label>
+        <p>{text.versionNicknameHelp}</p>
+        {!hasIdentity || editingIdentity ? <>
+        <label className="version-description-field"><span>{text.versionNickname}</span><input value={identityDraft} maxLength={80} autoComplete="off" disabled={repositoryBusy} onChange={(event) => { setIdentityDraft(event.target.value); setIdentityMessage(null); }} /></label>
+        <div className="version-control-actions"><button type="button" className="is-primary" disabled={isSavingIdentity || repositoryBusy || !identityDraft.trim()} onClick={() => void saveIdentity()}>{isSavingIdentity ? text.versionSavingAuthor : text.versionSaveAuthor}</button>{hasIdentity && <button type="button" disabled={repositoryBusy} onClick={() => { setEditingIdentity(false); setIdentityDraft(identity.nickname ?? ""); }}>{text.cancel}</button>}</div>
+        </> : <div className="version-nickname-summary"><strong>{identity.nickname}</strong><button type="button" disabled={repositoryBusy} onClick={() => setEditingIdentity(true)}>{text.versionEditNickname}</button></div>}
         {identityMessage && <p className="version-create-message is-error" role="alert">{identityMessage}</p>}
-        <div className="version-control-actions"><button type="button" className="is-primary" disabled={isSavingIdentity} onClick={() => void saveIdentity()}>{isSavingIdentity ? text.versionSavingAuthor : text.versionSaveAuthor}</button></div>
-      </section>}
+      </section>
 
       <section className="version-control-card version-create-card">
         <h2>{text.versionCreate}</h2>
         <label className="version-description-field">
           <span>{text.versionDescription}</span>
-          <input value={versionMessage} maxLength={160} onChange={(event) => { setVersionMessage(event.target.value); setCreateMessage(null); }} placeholder={text.versionDescriptionHint} />
+          <input value={versionMessage} disabled={repositoryBusy} maxLength={160} onChange={(event) => { setVersionMessage(event.target.value); setCreateMessage(null); }} placeholder={text.versionDescriptionHint} />
         </label>
         <p>{text.versionDescriptionHelp}</p>
         {createMessage && <p className={`version-create-message ${createMessage === text.versionCreated ? "is-success" : "is-error"}`} role="status">{createMessage}</p>}
         <div className="version-control-actions">
-          <button type="button" className="is-primary" disabled={!canCreateVersion} onClick={() => void createVersion()}>
+          <button type="button" className="is-primary" disabled={!canCreateVersion} onClick={() => void runRepositoryOperation(async () => { await createVersion(); }).catch((error) => setCreateMessage(String(error)))}>
             {isCreatingVersion ? text.versionCreatingVersion : text.versionCreateVersion}
           </button>
         </div>
       </section>
-
+    </>}
+    <RemoteSyncWorkspace {...props} changesReady={changesState.kind === "ready"} hasDocumentChanges={hasDocumentChanges} canCreateVersion={canCreateVersion} onCreateVersion={createVersion} versionDescription={versionMessage.trim()} />
+    {state.kind === "repository" && <>
       <section className="version-control-card version-history-card">
         <h2>{text.versionHistory}</h2>
         {historyState.kind === "loading" && <p className="version-change-loading">{text.versionHistoryLoading}</p>}

@@ -175,8 +175,12 @@ export type UiText = {
   versionHistoryLoading: string;
   versionMessageRequired: string;
   versionAuthorInformation: string;
-  versionAuthorName: string;
-  versionAuthorEmail: string;
+  versionNickname: string;
+  versionNicknameHelp: string;
+  versionEditNickname: string;
+  versionAuthorBy: (nickname: string) => string;
+  versionAuthorPending: string;
+  versionAuthorUnknown: string;
   versionSaveAuthor: string;
   versionSavingAuthor: string;
   versionRestoreThis: string;
@@ -425,7 +429,7 @@ export const uiText: Record<UiLanguage, UiText> = {
     documentDelivery: "文稿交付",
     documentDeliveryDescription: "为日常交付生成可继续编辑的 Word，或在需要时使用复杂模板的精确导出能力。",
     versionManagement: "版本管理",
-    versionManagementDescription: "在本机记录文稿版本，可随时比较或恢复历史内容。",
+    versionManagementDescription: "记录文稿修改、查看历史，并与远程仓库同步。",
     versionRequiresSavedDocument: "请先保存文稿，再启用版本管理。",
     versionCheckingGit: "正在检测 Git…",
     versionGitAvailable: (version) => `Git 已就绪${version ? ` · ${version}` : ""}`,
@@ -499,9 +503,13 @@ export const uiText: Record<UiLanguage, UiText> = {
     versionHistoryEmpty: "当前文稿尚无历史版本。",
     versionHistoryLoading: "正在读取版本历史…",
     versionMessageRequired: "请填写版本说明。",
-    versionAuthorInformation: "版本作者信息",
-    versionAuthorName: "姓名",
-    versionAuthorEmail: "邮箱",
+    versionAuthorInformation: "个人昵称",
+    versionNickname: "昵称",
+    versionNicknameHelp: "用于个人保存版本和协作时标识作者，无需真实姓名或邮箱。本机记住此昵称，修改后用于新创建的版本。",
+    versionEditNickname: "修改昵称",
+    versionAuthorBy: (nickname) => `修改者：${nickname}`,
+    versionAuthorPending: "未创建版本 · 作者待记录",
+    versionAuthorUnknown: "修改者未记录",
     versionSaveAuthor: "保存并继续",
     versionSavingAuthor: "正在保存…",
     versionRestoreThis: "恢复此版本",
@@ -750,7 +758,7 @@ export const uiText: Record<UiLanguage, UiText> = {
     documentDelivery: "Document Delivery",
     documentDeliveryDescription: "Create editable Word documents for everyday delivery, or use precise export when a complex template matters.",
     versionManagement: "Version Management",
-    versionManagementDescription: "Record document versions locally, then compare or restore earlier content whenever needed.",
+    versionManagementDescription: "Record manuscript changes, browse history, and sync with your remote repository.",
     versionRequiresSavedDocument: "Save the document before enabling version management.",
     versionCheckingGit: "Checking Git…",
     versionGitAvailable: (version) => `Git is ready${version ? ` · ${version}` : ""}`,
@@ -824,9 +832,13 @@ export const uiText: Record<UiLanguage, UiText> = {
     versionHistoryEmpty: "This document has no version history yet.",
     versionHistoryLoading: "Loading version history…",
     versionMessageRequired: "Enter a version description.",
-    versionAuthorInformation: "Version author information",
-    versionAuthorName: "Name",
-    versionAuthorEmail: "Email",
+    versionAuthorInformation: "Personal nickname",
+    versionNickname: "Nickname",
+    versionNicknameHelp: "Used to identify you when saving personal versions and collaborating. No real name or email is needed. Remembered on this computer; changes apply to new versions.",
+    versionEditNickname: "Edit nickname",
+    versionAuthorBy: (nickname) => `Changed by ${nickname}`,
+    versionAuthorPending: "Uncommitted · Author not recorded",
+    versionAuthorUnknown: "Author not recorded",
     versionSaveAuthor: "Save and continue",
     versionSavingAuthor: "Saving…",
     versionRestoreThis: "Restore This Version",

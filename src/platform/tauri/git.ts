@@ -36,8 +36,8 @@ export const tauriVersionControl: VersionControlService = {
   inspectIdentity({ documentPath, assetFolder }) {
     return invoke<VersionAuthorIdentity>("inspect_version_identity", { documentPath, assetFolder });
   },
-  configureIdentity({ documentPath, assetFolder, name, email }) {
-    return invoke<VersionAuthorIdentity>("configure_version_identity", { documentPath, assetFolder, name, email });
+  configureIdentity({ documentPath, assetFolder, nickname }) {
+    return invoke<VersionAuthorIdentity>("configure_version_identity", { documentPath, assetFolder, nickname });
   },
   getRestorePreflight({ documentPath, assetFolder, targetCommitId }) {
     return invoke<RestoreVersionPreflight>("get_restore_preflight", { documentPath, assetFolder, targetCommitId });

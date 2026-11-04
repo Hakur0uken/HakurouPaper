@@ -178,8 +178,7 @@ export type CreateVersionInput = {
 };
 
 export type VersionAuthorIdentity = {
-  name?: string;
-  email?: string;
+  nickname?: string | null;
 };
 
 export type RestoreStrategy = "save-current-version-first" | "discard-current-changes";
@@ -379,7 +378,7 @@ export interface VersionControlService {
   createVersion(input: CreateVersionInput): Promise<VersionRecord>;
   getHistory(input: { documentPath: string; assetFolder: string | null; limit?: number }): Promise<VersionRecord[]>;
   inspectIdentity(input: { documentPath: string; assetFolder: string | null }): Promise<VersionAuthorIdentity>;
-  configureIdentity(input: { documentPath: string; assetFolder: string | null; name: string; email: string }): Promise<VersionAuthorIdentity>;
+  configureIdentity(input: { documentPath: string; assetFolder: string | null; nickname: string }): Promise<VersionAuthorIdentity>;
   getRestorePreflight(input: { documentPath: string; assetFolder: string | null; targetCommitId: string }): Promise<RestoreVersionPreflight>;
   restoreVersion(input: RestoreVersionInput): Promise<RestoreVersionResult>;
 }

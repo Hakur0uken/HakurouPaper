@@ -286,6 +286,7 @@ pub struct RemoteRepository {
     has_commits: bool,
     dirty: bool,
     remotes: Vec<RemoteInfo>,
+    default_remote: Option<String>,
     state_token: String,
     changed_paths: Vec<String>,
 }
@@ -310,6 +311,15 @@ fn counts(root: &Path, tracking: &str) -> (Option<u64>, Option<u64>) {
         (Some(values[0]), Some(values[1]))
     } else {
         (None, None)
+    }
+}
+
+fn default_remote(root: &Path, current: Option<&str>, names: &[&str]) -> Option<String> {
+    let upstream = current.and_then(|branch| optional(root, &["config", "--get", &format!("branch.{branch}.remote")]));
+    match upstream {
+        Some(name) => names.contains(&name.as_str()).then_some(name),
+        None if names.len() == 1 => Some(names[0].to_owned()),
+        _ => None,
     }
 }
 
@@ -351,12 +361,15 @@ fn inspect(app: &AppHandle, root: &Path) -> Result<RemoteRepository, String> {
             account_issue,
         });
     }
+    let default_remote = default_remote(root, current.as_deref(), &remotes.iter().map(|remote| remote.name.as_str()).collect::<Vec<_>>());
+    signature.push_str(&format!("\0{default_remote:?}"));
     Ok(RemoteRepository {
         repository_root: root.to_string_lossy().into(),
         branch: current,
         has_commits: head.is_some(),
         dirty,
         remotes,
+        default_remote,
         state_token: format!("{:x}", Sha256::digest(signature.as_bytes())),
         changed_paths: vec![],
     })
@@ -869,6 +882,23 @@ mod tests {
         ] {
             assert!(parse_endpoint(value).is_err(), "{value}");
         }
+    }
+
+    #[test]
+    fn menu_pull_selects_the_configured_upstream_without_guessing_between_remotes() {
+        let root = std::env::temp_dir().join(format!("hakurou-upstream-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        assert!(run(&root, &["init", "-b", "main"]).unwrap().status.success());
+        assert_eq!(default_remote(&root, Some("main"), &["origin"]), Some("origin".into()));
+        assert_eq!(default_remote(&root, Some("main"), &["origin", "team"]), None);
+        assert!(run(&root, &["config", "branch.main.remote", "team"]).unwrap().status.success());
+        assert!(run(&root, &["config", "branch.main.merge", "refs/heads/writing"]).unwrap().status.success());
+        assert_eq!(default_remote(&root, Some("main"), &["origin", "team"]), Some("team".into()));
+        assert_eq!(target_branch(&root, "team", "main").unwrap(), "writing");
+        assert_eq!(default_remote(&root, Some("main"), &["origin"]), None);
+        assert!(run(&root, &["config", "branch.main.remote", "."]).unwrap().status.success());
+        assert_eq!(default_remote(&root, Some("main"), &["origin"]), None);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

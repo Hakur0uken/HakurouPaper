@@ -1445,7 +1445,7 @@ dependencies = [
 
 [[package]]
 name = "hakurou-paper"
-version = "0.8.2"
+version = "0.8.5"
 dependencies = [
  "base64 0.22.1",
  "cfb 0.14.0",

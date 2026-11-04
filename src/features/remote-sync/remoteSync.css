@@ -1,5 +1,6 @@
 .remote-sync-workspace { min-width: 0; }
-.remote-sync-workspace .feature-workspace-header small { color: var(--muted, #777); font-size: 11px; }
+.remote-section-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.remote-section-heading small { color: var(--muted, #777); font-size: 11px; }
 .remote-intro, .remote-section p { font-size: 12px; line-height: 1.65; color: var(--muted, #777); }
 .remote-section { border-top: 1px solid var(--line, #deded8); padding: 16px 0; }
 .remote-section h2 { font-size: 13px; margin: 0 0 12px; font-weight: 600; }
@@ -21,3 +22,9 @@
 .remote-account { display: grid; gap: 5px; margin: 12px 0; font-size: 12px; }
 .remote-account small { color: var(--muted, #777); }
 .remote-account button { justify-self: start; }
+.remote-account-settings summary, .remote-repository-settings summary { cursor: pointer; font-size: 12px; font-weight: 600; }
+.remote-repository-settings { margin-top: 14px; }
+.remote-heading strong { font-size: 12px; font-weight: 600; }
+.remote-sync-workspace .remote-section:last-child { padding-bottom: 0; }
+.remote-section button.is-primary { color: #fff; background: #556b5b; border-color: #556b5b; }
+.remote-section button.is-primary:hover:not(:disabled) { background: #425447; }

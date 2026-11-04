@@ -22,6 +22,8 @@ export type FeatureWorkspaceProps = {
   document: FeatureDocumentContext;
   text: UiText;
   onSaveDocument: () => Promise<boolean>;
+  repositoryBusy: boolean;
+  runRepositoryOperation: (operation: () => Promise<void>) => Promise<void>;
   hasUnsavedDocuments: boolean;
   /** Reconcile files after an explicit disk operation without discarding edits. */
   onDiskDocumentsChanged: (changedPaths: string[]) => Promise<void>;

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { UiText } from "../../i18n";
+import { RevisionAuthor } from "./RevisionAuthor";
 import { platform, type DiffHunk, type DiffLine, type FileDiff, type RevisionDescriptor, type VersionChange, type VersionComparison } from "../../platform";
 import type { FeatureDocumentContext } from "../registry";
 
@@ -71,11 +72,10 @@ function RevisionCard({ revision, side, text }: { revision: RevisionDescriptor; 
     <span>{revisionRole(revision, text, side)}</span>
     <strong>{revisionName(revision, text, side)}</strong>
     {revision.kind === "version" && <div className="version-revision-details">
-      {revision.authorName && <span>{revision.authorName}</span>}
-      {revision.timestamp && <span>{new Date(revision.timestamp).toLocaleString()}</span>}
+      <RevisionAuthor revision={revision} text={text} />
       {revision.shortId && <code title={revision.id}>{revision.shortId}</code>}
     </div>}
-    {revision.kind === "currentDocument" && <div className="version-revision-details"><span>{text.versionNotCreatedYet}</span></div>}
+    {revision.kind === "currentDocument" && <div className="version-revision-details"><RevisionAuthor revision={revision} text={text} /></div>}
   </div>;
 }
 

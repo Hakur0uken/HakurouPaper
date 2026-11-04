@@ -10,6 +10,7 @@ import { nord } from "@milkdown/theme-nord";
 import { EditorControls } from "./EditorControls";
 import { SourceLineNumbers } from "./editor/SourceLineNumbers";
 import { featureRegistry, releaseHistoricalAssetsForDocument, releaseRevisionDataForDocument, RenderedRevisionViewer, VersionDiffViewer, type FeatureDocumentContext } from "./features";
+import { updateWorkingDirectory } from "./features/remote-sync/workflows";
 import { uiText, type UiLanguage, type UiText } from "./i18n";
 import { OutlineRailIcon } from "./ui/RailIcons";
 import { createImageAssetPlugins } from "./editor/image";
@@ -449,6 +450,8 @@ function App() {
   const [activeFeatureId, setActiveFeatureId] = useState<string | null>(null);
   const [headRevisionEpoch, setHeadRevisionEpoch] = useState(0);
   const [workingTreeEpoch, setWorkingTreeEpoch] = useState(0);
+  const [repositoryBusy, setRepositoryBusy] = useState(false);
+  const repositoryOperationRef = useRef(false);
   const [activeVersionComparison, setActiveVersionComparison] = useState<ActiveVersionComparison | null>(null);
   const [showRevisionChanges, setShowRevisionChanges] = useState(() => window.localStorage.getItem(revisionChangesVisibleStorageKey) === "true");
   const [showLineNumbers, setShowLineNumbers] = useState(() => window.localStorage.getItem(lineNumbersVisibleStorageKey) === "true");
@@ -470,6 +473,13 @@ function App() {
     [activeTabId, tabs],
   );
   const text = uiText[language];
+  const runRepositoryOperation = useCallback(async (operation: () => Promise<void>) => {
+    if (repositoryOperationRef.current) throw new Error(text.remoteSync.operationBusy);
+    repositoryOperationRef.current = true;
+    setRepositoryBusy(true);
+    try { await operation(); }
+    finally { repositoryOperationRef.current = false; setRepositoryBusy(false); }
+  }, [text.remoteSync.operationBusy]);
   const activeExternalChangeKey = activeDocument.externalChange ? `${activeDocument.id}\u0000${activeDocument.externalChange.fingerprint}` : null;
   const externalChangeDialogVisible = Boolean(activeExternalChangeKey && activeExternalChangeKey !== dismissedExternalChangeKey);
   const externalChangeComparison = useMemo(() => {
@@ -933,6 +943,26 @@ function App() {
     setWorkingTreeEpoch((epoch) => epoch + 1);
   }, []);
 
+  const handleUpdateWorkingDirectory = useCallback(async () => {
+    if (!activeDocument.path || repositoryOperationRef.current) return;
+    const path = activeDocument.path;
+    try {
+      await runRepositoryOperation(async () => {
+        try {
+          const result = await updateWorkingDirectory(platform.remoteGit, path, () => tabsRef.current.some((tab) => tab.isDirty), text.remoteSync);
+          await reconcileOpenDocuments(result.changedPaths);
+          window.alert(text.remoteSync.updatedDirectory);
+        } finally {
+          setHeadRevisionEpoch((epoch) => epoch + 1);
+        }
+      });
+    } catch (error) {
+      setSidebarOpen(true);
+      setActiveFeatureId("version-control");
+      window.alert(String(error));
+    }
+  }, [activeDocument.path, reconcileOpenDocuments, runRepositoryOperation, text.remoteSync]);
+
   const reloadExternalDocument = useCallback(async () => {
     if (!activeDocument.path) return;
     try {
@@ -1005,31 +1035,34 @@ function App() {
   }, [activeDocument.isDirty, planVersionRestore]);
 
   const performVersionRestore = useCallback(async () => {
-    if (!restoreDialog || !activeDocument.path || isRestoringVersion) return;
+    if (!restoreDialog || !activeDocument.path || isRestoringVersion || repositoryOperationRef.current) return;
+    const documentPath = activeDocument.path;
     setIsRestoringVersion(true);
     try {
       const strategy = restoreDialog.kind === "protect" ? restoreDialog.strategy : "discard-current-changes";
       const safetyVersionMessage = restoreDialog.kind === "protect" && restoreDialog.strategy === "save-current-version-first"
         ? restoreDialog.safetyMessage
         : undefined;
-      const result = await platform.versionControl.restoreVersion({
-        documentPath: activeDocument.path,
-        assetFolder: activeDocument.assetFolder,
-        targetCommitId: restoreDialog.targetCommitId,
-        strategy,
-        safetyVersionMessage,
+      await runRepositoryOperation(async () => {
+        const result = await platform.versionControl.restoreVersion({
+          documentPath,
+          assetFolder: activeDocument.assetFolder,
+          targetCommitId: restoreDialog.targetCommitId,
+          strategy,
+          safetyVersionMessage,
+        });
+        await reloadActiveDocumentFromDisk();
+        setHeadRevisionEpoch((epoch) => epoch + 1);
+        setActiveVersionComparison(null);
+        setRestoreDialog(null);
+        window.alert(result.alreadyEquivalent ? text.versionAlreadyEquivalent : text.versionRestored);
       });
-      await reloadActiveDocumentFromDisk();
-      setHeadRevisionEpoch((epoch) => epoch + 1);
-      setActiveVersionComparison(null);
-      setRestoreDialog(null);
-      window.alert(result.alreadyEquivalent ? text.versionAlreadyEquivalent : text.versionRestored);
     } catch (error) {
       window.alert(String(error));
     } finally {
       setIsRestoringVersion(false);
     }
-  }, [activeDocument.assetFolder, activeDocument.path, isRestoringVersion, reloadActiveDocumentFromDisk, restoreDialog, text.versionAlreadyEquivalent, text.versionRestored]);
+  }, [activeDocument.assetFolder, activeDocument.path, isRestoringVersion, reloadActiveDocumentFromDisk, restoreDialog, runRepositoryOperation, text.versionAlreadyEquivalent, text.versionRestored]);
 
   const handleSharePackage = useCallback(async () => {
     if (!activeDocument.path) {
@@ -1370,6 +1403,7 @@ function App() {
                 <span className="app-menu-separator" />
                 <button type="button" onClick={() => invokeMenuAction(() => void handleSave())}>{text.save} <kbd>Ctrl S</kbd></button>
                 <button type="button" onClick={() => invokeMenuAction(() => void handleSharePackage())}>{text.sharePackage}</button>
+                <button type="button" disabled={!activeDocument.path || repositoryBusy} onClick={() => invokeMenuAction(() => void handleUpdateWorkingDirectory())}>{text.remoteSync.pull}</button>
                 <span className="app-menu-separator" />
                 <button type="button" onClick={() => invokeMenuAction(() => closeTab(activeTabId))}>{text.closeDocument} <kbd>Ctrl W</kbd></button>
               </div>}
@@ -1488,7 +1522,7 @@ function App() {
             ))}
           </aside>
           {ActiveFeatureWorkspace ? <aside className="feature-sidebar" aria-label={activeFeature?.label(text)}>
-            <ActiveFeatureWorkspace document={featureDocument} text={text} onSaveDocument={handleSave} hasUnsavedDocuments={tabs.some((tab) => tab.isDirty)} onDiskDocumentsChanged={reconcileOpenDocuments} showRevisionChanges={showRevisionChanges} onShowRevisionChangesChange={setShowRevisionChanges} onVersionStateChanged={() => setHeadRevisionEpoch((epoch) => epoch + 1)} onOpenVersionDiff={openVersionDiff} onOpenVersionHistoryComparison={openVersionHistoryComparison} />
+            <ActiveFeatureWorkspace document={featureDocument} text={text} onSaveDocument={handleSave} repositoryBusy={repositoryBusy} runRepositoryOperation={runRepositoryOperation} hasUnsavedDocuments={tabs.some((tab) => tab.isDirty)} onDiskDocumentsChanged={reconcileOpenDocuments} showRevisionChanges={showRevisionChanges} onShowRevisionChangesChange={setShowRevisionChanges} onVersionStateChanged={() => setHeadRevisionEpoch((epoch) => epoch + 1)} onOpenVersionDiff={openVersionDiff} onOpenVersionHistoryComparison={openVersionHistoryComparison} />
           </aside> : sidebarOpen && <aside className="document-sidebar" aria-label={text.documentList}>
             {documentHeadings.length > 0 && <>
               <div className="sidebar-heading sidebar-outline-heading"><span>{text.outline}</span></div>
