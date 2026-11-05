@@ -7,6 +7,7 @@ import { tauriVersionControl } from "./git";
 import { tauriRemoteGit } from "./remoteGit";
 import { tauriLinks } from "./links";
 import { tauriWindow } from "./window";
+import { tauriUpdates } from "./updates";
 
 export const tauriPlatform: PlatformServices = {
   capabilities: tauriCapabilities,
@@ -17,4 +18,5 @@ export const tauriPlatform: PlatformServices = {
   links: tauriLinks,
   versionControl: tauriVersionControl,
   remoteGit: tauriRemoteGit,
+  updates: tauriUpdates,
 };

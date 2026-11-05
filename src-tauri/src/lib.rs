@@ -915,6 +915,10 @@ pub fn run() {
             let _ = window.set_focus();
         }
     }));
+    #[cfg(desktop)]
+    let builder = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
     builder
         .manage(MarkdownWatchState::default())
         .plugin(tauri_plugin_opener::init())

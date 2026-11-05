@@ -1,0 +1,15 @@
+.software-update-dialog { width: min(480px, calc(100vw - 48px)); max-height: calc(100vh - 64px); box-sizing: border-box; overflow: auto; padding: 26px; border: 1px solid #d6d9d0; border-radius: 10px; color: #353d35; background: #fbfcf8; box-shadow: 0 20px 70px #18251b30; font: 13px/1.65 "Microsoft YaHei", sans-serif; }
+.software-update-dialog::backdrop { background: #17201950; }
+.software-update-eyebrow { color: #6b7a69; font-size: 11px; letter-spacing: .08em; }
+.software-update-dialog h2 { font-size: 21px; margin: 5px 0 4px; }
+.software-update-versions, .software-update-help { color: #697165; font-size: 12px; }
+.software-update-notes { margin: 18px 0; padding: 14px 16px; border: 1px solid #e2e6db; border-radius: 6px; background: #f4f6ef; }
+.software-update-notes h3 { margin: 0 0 7px; font-size: 12px; color: #697165; }
+.software-update-notes p { max-height: 220px; overflow: auto; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.software-update-dialog footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 22px; }
+.software-update-dialog button { border: 1px solid #ced5c7; border-radius: 5px; padding: 7px 12px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.software-update-dialog button.is-primary { background: #526d54; border-color: #526d54; color: white; }
+.software-update-dialog button:disabled { opacity: .5; cursor: default; }
+.software-update-dialog button:focus-visible { outline: 2px solid #526d54; outline-offset: 3px; }
+.software-update-progress progress { display: block; width: 100%; height: 8px; accent-color: #526d54; }
+.software-update-error { color: #956145; }

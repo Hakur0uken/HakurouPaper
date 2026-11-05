@@ -1,5 +1,6 @@
 import type { AssetV1 } from "../core/schema";
 import type { RemoteGitService } from "./remoteTypes";
+import type { SoftwareUpdateService } from "./updateTypes";
 
 export type PlatformCapabilities = {
   richClipboard: boolean;
@@ -392,4 +393,5 @@ export type PlatformServices = {
   links: LinkService;
   versionControl: VersionControlService;
   remoteGit: RemoteGitService;
+  updates: SoftwareUpdateService;
 };

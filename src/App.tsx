@@ -11,6 +11,8 @@ import { EditorControls } from "./EditorControls";
 import { SourceLineNumbers } from "./editor/SourceLineNumbers";
 import { featureRegistry, releaseHistoricalAssetsForDocument, releaseRevisionDataForDocument, RenderedRevisionViewer, VersionDiffViewer, type FeatureDocumentContext } from "./features";
 import { updateWorkingDirectory } from "./features/remote-sync/workflows";
+import { useSoftwareUpdate } from "./features/software-update/useSoftwareUpdate";
+import { SoftwareUpdateDialog } from "./features/software-update/SoftwareUpdateDialog";
 import { uiText, type UiLanguage, type UiText } from "./i18n";
 import { OutlineRailIcon } from "./ui/RailIcons";
 import { createImageAssetPlugins } from "./editor/image";
@@ -473,6 +475,11 @@ function App() {
     [activeTabId, tabs],
   );
   const text = uiText[language];
+  const softwareUpdate = useSoftwareUpdate(startupReady, () =>
+    repositoryOperationRef.current ? "busy" :
+      tabsRef.current.some((tab) => tab.isDirty || tab.externalChange) ? "unsaved" : null);
+  const updateInstallationBlock = repositoryBusy ? "busy" :
+    tabs.some((tab) => tab.isDirty || tab.externalChange) ? "unsaved" : null;
   const runRepositoryOperation = useCallback(async (operation: () => Promise<void>) => {
     if (repositoryOperationRef.current) throw new Error(text.remoteSync.operationBusy);
     repositoryOperationRef.current = true;
@@ -1148,12 +1155,13 @@ function App() {
   }, []);
 
   const requestAppClose = useCallback(() => {
+    if (softwareUpdate.controller.snapshot().phase === "installing") return;
     if (tabs.some((tab) => tab.isDirty)) {
       setPendingClose({ kind: "app" });
       return;
     }
     exitApplication();
-  }, [exitApplication, tabs]);
+  }, [exitApplication, tabs, softwareUpdate.controller]);
 
   const runEditCommand = useCallback((command: "undo" | "redo" | "cut" | "copy" | "paste") => {
     document.execCommand(command);
@@ -1195,13 +1203,14 @@ function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (softwareUpdate.controller.snapshot().open) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void handleSave(); }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") { event.preventDefault(); createNewDocument(); }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o") { event.preventDefault(); void handleOpen(); }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [createNewDocument, handleOpen, handleSave]);
+  }, [createNewDocument, handleOpen, handleSave, softwareUpdate.controller]);
 
   useEffect(() => {
     tabsRef.current = tabs;
@@ -1262,11 +1271,12 @@ function App() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     void platform.window.onCloseRequested(() => {
+      if (softwareUpdate.controller.snapshot().phase === "installing") return;
       if (tabsRef.current.some((tab) => tab.isDirty)) setPendingClose({ kind: "app" });
       else exitApplication();
     }).then((dispose) => { unlisten = dispose; });
     return () => unlisten?.();
-  }, [exitApplication]);
+  }, [exitApplication, softwareUpdate.controller]);
 
   const isHeadingVisibleInOutline = useCallback((headingIndex: number) => {
     return !activeCollapsedHeadings.some((parentIndex) => {
@@ -1470,7 +1480,11 @@ function App() {
             </div>
             <div className="app-menu">
               <button type="button" onClick={() => setOpenMenu(openMenu === "help" ? null : "help")}>{text.help}</button>
-              {openMenu === "help" && <div className="app-menu-popup"><button type="button" onClick={() => invokeMenuAction(() => window.alert(text.aboutMessage))}>{text.about}</button></div>}
+              {openMenu === "help" && <div className="app-menu-popup">
+                <button type="button" onClick={() => invokeMenuAction(() => void softwareUpdate.controller.check(true))}>{text.softwareUpdate.menu}</button>
+                <span className="app-menu-separator" />
+                <button type="button" onClick={() => invokeMenuAction(() => window.alert(text.aboutMessage))}>{text.about}</button>
+              </div>}
             </div>
           </nav>
           <div className="app-header-actions">
@@ -1592,6 +1606,7 @@ function App() {
             <span>{text.documentStats(countWords(activeDocument.content), activeDocument.content.trim().length)}</span>
           </span>
         </footer>
+        <SoftwareUpdateDialog state={softwareUpdate.state} controller={softwareUpdate.controller} text={text.softwareUpdate} block={updateInstallationBlock} />
         {externalChangeDialogVisible && activeDocument.externalChange && <div className="close-confirm-backdrop" role="presentation">
           <section className="close-confirm-dialog external-change-dialog" role="dialog" aria-modal="true" aria-labelledby="external-change-title">
             <h2 id="external-change-title">{text.externalChangeDetected}</h2>

@@ -30,6 +30,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "fileAssociations": [
       {
@@ -45,5 +46,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFBMTk0MkM4OTZGOTM0RkUKUldUK05QbVd5RUlacWtuWXNtcXJkNFRPbWwwcVRIS0ZmSnUxTFBHWWlUdW4xWm9VU1llNmJtR0YK",
+      "endpoints": ["https://github.com/Hakur0uken/HakurouPaper/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
   }
 }

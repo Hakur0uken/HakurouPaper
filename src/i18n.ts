@@ -1,9 +1,11 @@
 import { remoteSyncZh, remoteSyncEn, type RemoteSyncText } from "./features/remote-sync/text";
+import { softwareUpdateZh, softwareUpdateEn, type SoftwareUpdateText } from "./features/software-update/text";
 
 export type UiLanguage = "zh" | "en";
 
 export type UiText = {
   remoteSync: RemoteSyncText;
+  softwareUpdate: SoftwareUpdateText;
   startupLoading: string;
   file: string;
   edit: string;
@@ -333,6 +335,7 @@ export type UiText = {
 export const uiText: Record<UiLanguage, UiText> = {
   zh: {
     remoteSync: remoteSyncZh,
+    softwareUpdate: softwareUpdateZh,
     startupLoading: "正在打开…",
     file: "文件",
     edit: "编辑",
@@ -662,6 +665,7 @@ export const uiText: Record<UiLanguage, UiText> = {
   },
   en: {
     remoteSync: remoteSyncEn,
+    softwareUpdate: softwareUpdateEn,
     startupLoading: "Opening…",
     file: "File",
     edit: "Edit",
