@@ -807,7 +807,7 @@ fn primary_parent_id(record: &VersionRecord) -> Option<&str> {
     record.parent_ids.first().map(String::as_str)
 }
 
-fn version_records_from_output(output: &[u8]) -> Vec<VersionRecord> {
+pub(crate) fn version_records_from_output(output: &[u8]) -> Vec<VersionRecord> {
     let mut fields: Vec<String> = output
         .split(|byte| *byte == b'\0')
         .map(|field| String::from_utf8_lossy(field).trim().to_string())
@@ -821,7 +821,7 @@ fn version_records_from_output(output: &[u8]) -> Vec<VersionRecord> {
         .collect()
 }
 
-fn version_record_for_id(root: &Path, id: &str) -> Result<VersionRecord, String> {
+pub(crate) fn version_record_for_id(root: &Path, id: &str) -> Result<VersionRecord, String> {
     if id != "HEAD"
         && (id.len() < 7 || id.len() > 64 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()))
     {
@@ -1643,6 +1643,11 @@ fn apply_nickname_identity(command: &mut std::process::Command, profile: &Nickna
     for key in ["GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL", "EMAIL"] {
         command.env(key, &address);
     }
+}
+
+pub(crate) fn apply_version_identity(app: &tauri::AppHandle, command: &mut std::process::Command) -> Result<(), String> {
+    apply_nickname_identity(command, &require_nickname_profile(app)?);
+    Ok(())
 }
 
 fn commit_with_identity(root: &Path, arguments: &[String], profile: Option<&NicknameProfile>) -> Result<Output, String> {

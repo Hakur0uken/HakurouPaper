@@ -4,15 +4,16 @@ import test from "node:test";
 import vm from "node:vm";
 import ts from "typescript";
 
-async function load(path) {
+async function load(path, dependencies = {}) {
   const source = await readFile(new URL(path, import.meta.url), "utf8");
   const output = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  const context = { exports: {} };
+  const context = { exports: {}, require: (name) => { if (!(name in dependencies)) throw new Error(`Unknown test dependency: ${name}`); return dependencies[name]; } };
   vm.runInNewContext(output, context);
   return context.exports;
 }
-const { uploadVersion, updateWorkingDirectory } = await load("../src/features/remote-sync/workflows.ts");
-const { remoteSyncZh: text } = await load("../src/features/remote-sync/text.ts");
+const { uploadVersion, updateWorkingDirectory, completeReviewedMerge } = await load("../src/features/remote-sync/workflows.ts");
+const mergeText = await load("../src/features/remote-sync/mergeText.ts");
+const { remoteSyncZh: text } = await load("../src/features/remote-sync/text.ts", { "./mergeText": mergeText });
 const remote = { name: "origin", fetchUrl: "https://gitee.com/example/paper.git", pushUrl: "https://gitee.com/example/paper.git", targetBranch: "main", accountId: "account-a", accountIssue: null };
 const baseline = { repositoryRoot: "C:/paper", branch: "main", hasCommits: true, dirty: false, remotes: [remote], defaultRemote: "origin", stateToken: "before", changedPaths: [] };
 const target = { repository: baseline, remote, createVersion: true };
@@ -85,4 +86,21 @@ test("menu pull blocks ambiguous remotes, dirty files, missing account and unsav
   await assert.rejects(updateWorkingDirectory(service, "paper.md", () => true, text), /保存/);
   assert.equal(inspected, false);
   await assert.rejects(updateWorkingDirectory(service, "paper.md", () => inspected, text), /保存/);
+});
+
+const review = { id: "review-1", repositoryRoot: baseline.repositoryRoot, branch: baseline.branch, stateToken: baseline.stateToken };
+test("reviewed merge creates only the requested merge and returns files for reconciliation", async () => {
+  const choices = [{ conflictId: "group-1", choice: "text", text: "both changes" }];
+  let called = 0;
+  const result = await completeReviewedMerge({ async inspect() { return baseline; }, async completeMerge(input) { called++; assert.equal(input.planId, review.id); assert.equal(input.resolutions, choices); assert.equal(input.message, "merge together"); return { ...baseline, changedPaths: ["C:/paper/paper.md"] }; } }, "paper.md", review, choices, "merge together", () => false, text);
+  assert.equal(called, 1); assert.deepEqual(result.changedPaths, ["C:/paper/paper.md"]);
+});
+test("stale branch, dirty files and edits arriving during merge preflight never publish", async () => {
+  let completed = false;
+  for (const current of [{ ...baseline, branch: "other" }, { ...baseline, stateToken: "new-head" }, { ...baseline, repositoryRoot: "elsewhere" }, { ...baseline, dirty: true }]) {
+    await assert.rejects(completeReviewedMerge({ async inspect() { return current; }, async completeMerge() { completed = true; } }, "paper.md", review, [], "merge", () => false, text));
+  }
+  let inspected = false;
+  await assert.rejects(completeReviewedMerge({ async inspect() { inspected = true; return baseline; }, async completeMerge() { completed = true; } }, "paper.md", review, [], "merge", () => inspected, text), /保存/);
+  assert.equal(completed, false);
 });

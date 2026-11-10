@@ -1,0 +1,14 @@
+.external-merge-dialog { width: min(920px, calc(100vw - 48px)); max-height: calc(100vh - 64px); display: flex; flex-direction: column; padding: 24px; background: var(--panel-bg, #fff); color: inherit; border: 1px solid var(--border-color, #ccd2ce); box-shadow: 0 12px 50px #0002; }
+.external-merge-dialog h2 { margin: 0 0 10px; font-size: 19px; }
+.external-merge-dialog p { font-size: 13px; line-height: 1.7; }
+.external-merge-body { overflow: auto; min-height: 0; padding: 8px 0; }
+.merge-conflict { padding: 16px 0; border-top: 1px solid var(--border-color, #ccd2ce); }
+.merge-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 10px; }
+.external-merge-dialog pre { font: 13px/1.7 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; max-height: 220px; overflow: auto; }
+.merge-choices { display: flex; gap: 8px; flex-wrap: wrap; }
+.merge-choices button, .external-merge-dialog .close-confirm-actions button { padding: 7px 12px; border: 1px solid var(--border-color, #ccd2ce); background: transparent; color: inherit; cursor: pointer; }
+.merge-choices button[aria-pressed="true"] { border-color: #29875b; background: #29875b18; }
+.external-merge-dialog button:disabled { opacity: .45; cursor: default; }
+.external-merge-dialog [role="alert"] { color: #b34d3e; }
+.merge-preview { margin: 12px 0; }
+@media (max-width: 600px) { .merge-sides { grid-template-columns: 1fr; } .external-merge-dialog { padding: 16px; } }

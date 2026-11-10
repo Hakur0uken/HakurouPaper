@@ -11,7 +11,7 @@ export type RemoteRepository = {
   defaultRemote: string | null;
 };
 export type RemoteAction = "fetch" | "pull" | "push";
-export interface RemoteGitService {
+export interface RemoteGitService extends RemoteMergeService {
   inspect(documentPath: string): Promise<RemoteRepository>;
   add(input: { documentPath: string; name: string; url: string }): Promise<RemoteRepository>;
   bindAccount(input: { documentPath: string; remote: string; accountId: string }): Promise<RemoteRepository>;
@@ -20,3 +20,4 @@ export interface RemoteGitService {
   saveAccount(input: { host: string; login: string; secret: string }): Promise<GitAccount>;
   removeAccount(accountId: string): Promise<void>;
 }
+import type { RemoteMergeService } from "./remoteMergeTypes";

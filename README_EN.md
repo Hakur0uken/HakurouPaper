@@ -71,6 +71,12 @@ Version management combines local history and remote collaboration: connect to G
 
 Windows can save HTTPS Git credentials in Windows Credential Manager, with separate accounts for each platform and repository. SSH continues to use your system identity. No OAuth app or authorization server is required. Real Gitee Git transport has been tested; complete native desktop interactions and permission failure scenarios still need acceptance testing. See the [remote collaboration guide (Chinese)](guides/remote-collaboration.md).
 
+## Source editing and live collaboration
+
+Version 0.9.0 adds Document / Source switching (`Ctrl+Shift+M`), including prose between adjacent code blocks, using the same document and undo history. Saving remains explicit. Code-block revision markers stay visible during horizontal scrolling, and browser/WebView default context menus are suppressed while the editor menu remains available.
+
+Edits preserve untouched Markdown blocks. External edits can be merged with unsaved content, and the local CLI can read and edit open documents. See the [collaboration guide](guides/live-collaboration.md) for commands and limitations. Remote collaboration also adds experimental Compare and merge for fetched revisions, text, images and formatting conflicts; uploading remains a separate action.
+
 ## Built for future AI / Agent workflows
 
 HakurouPaper is not tied to a particular AI and does not require an embedded Agent. You can keep using the AI or Agent tools you already prefer for writing and collaboration.

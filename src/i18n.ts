@@ -34,6 +34,10 @@ export type UiText = {
   documentPanel: string;
   sourceLineNumbers: string;
   sourceLineNumbersDescription: string;
+  editorMode: string;
+  visualEditing: string;
+  sourceEditing: string;
+  markdownSource: string;
   documentFont: string;
   documentTable: string;
   documentIndent: string;
@@ -364,6 +368,10 @@ export const uiText: Record<UiLanguage, UiText> = {
     documentPanel: "文档面板",
     sourceLineNumbers: "显示源文件行号",
     sourceLineNumbersDescription: "在左侧显示 Markdown 源文件行号；跨行内容显示起止行号",
+    editorMode: "编辑模式",
+    visualEditing: "正文",
+    sourceEditing: "源码",
+    markdownSource: "Markdown 源码",
     documentFont: "文档字体",
     documentTable: "文档表格",
     documentIndent: "文档缩进",
@@ -694,6 +702,10 @@ export const uiText: Record<UiLanguage, UiText> = {
     documentPanel: "Document Panel",
     sourceLineNumbers: "Show Source Line Numbers",
     sourceLineNumbersDescription: "Show Markdown source line numbers on the left; multiline content shows a line range",
+    editorMode: "Editing mode",
+    visualEditing: "Document",
+    sourceEditing: "Source",
+    markdownSource: "Markdown source",
     documentFont: "Document Font",
     documentTable: "Document Table",
     documentIndent: "Document Indent",

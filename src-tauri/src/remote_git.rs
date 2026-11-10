@@ -14,7 +14,7 @@ use std::{
 };
 use tauri::AppHandle;
 
-static REMOTE_OPERATION: Mutex<()> = Mutex::new(());
+pub(crate) static REMOTE_OPERATION: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, Debug)]
 struct Endpoint {
@@ -75,7 +75,7 @@ fn parse_endpoint(value: &str) -> Result<Endpoint, String> {
     })
 }
 
-fn command(root: &Path) -> Command {
+pub(crate) fn command(root: &Path) -> Command {
     let mut cmd = git_accounts::hidden_command("git");
     cmd.arg("-C")
         .arg(root)
@@ -121,7 +121,7 @@ fn command(root: &Path) -> Command {
 }
 
 /// Drains both pipes while waiting; large transfers cannot deadlock on stderr.
-fn execute(mut cmd: Command) -> Result<Output, String> {
+pub(crate) fn execute(mut cmd: Command) -> Result<Output, String> {
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -132,16 +132,16 @@ fn execute(mut cmd: Command) -> Result<Output, String> {
     let stderr = child.stderr.take().ok_or("无法读取 Git 输出。")?;
     let read = |mut stream: Box<dyn Read + Send>| {
         let mut bytes = vec![];
+        let mut overflow = false;
         let mut buffer = [0; 8192];
         while let Ok(n) = stream.read(&mut buffer) {
             if n == 0 {
                 break;
             }
-            if bytes.len() < 1024 * 1024 {
-                bytes.extend_from_slice(&buffer[..n]);
-            }
+            if bytes.len() + n <= 1024 * 1024 { bytes.extend_from_slice(&buffer[..n]); }
+            else { overflow = true; }
         }
-        bytes
+        (bytes, overflow)
     };
     let out = thread::spawn(move || read(Box::new(stdout)));
     let err = thread::spawn(move || read(Box::new(stderr)));
@@ -163,19 +163,22 @@ fn execute(mut cmd: Command) -> Result<Output, String> {
         }
         thread::sleep(Duration::from_millis(30));
     };
+    let (stdout, out_overflow) = out.join().map_err(|_| "无法读取 Git 输出。")?;
+    let (stderr, err_overflow) = err.join().map_err(|_| "无法读取 Git 输出。")?;
+    if out_overflow || err_overflow { return Err("Git 输出超过预览上限，已停止操作，未截断处理。".into()); }
     Ok(Output {
         status,
-        stdout: out.join().unwrap_or_default(),
-        stderr: err.join().unwrap_or_default(),
+        stdout,
+        stderr,
     })
 }
 
-fn run(root: &Path, args: &[&str]) -> Result<Output, String> {
+pub(crate) fn run(root: &Path, args: &[&str]) -> Result<Output, String> {
     let mut cmd = command(root);
     cmd.args(args);
     execute(cmd)
 }
-fn text(root: &Path, args: &[&str]) -> Result<String, String> {
+pub(crate) fn text(root: &Path, args: &[&str]) -> Result<String, String> {
     let output = run(root, args)?;
     if !output.status.success() {
         return Err("无法读取 Git 仓库信息，请检查仓库状态与访问权限。".into());
@@ -186,7 +189,7 @@ fn optional(root: &Path, args: &[&str]) -> Option<String> {
     text(root, args).ok().filter(|s| !s.is_empty())
 }
 
-fn repository(document_path: &str) -> Result<PathBuf, String> {
+pub(crate) fn repository(document_path: &str) -> Result<PathBuf, String> {
     let document = Path::new(document_path);
     if !document.is_file() || !crate::is_markdown_path(document) {
         return Err("请先打开已保存的 Markdown 文稿。".into());
@@ -217,12 +220,12 @@ fn check_name(root: &Path, remote: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn branch(root: &Path) -> Result<String, String> {
+pub(crate) fn branch(root: &Path) -> Result<String, String> {
     optional(root, &["symbolic-ref", "--quiet", "--short", "HEAD"])
         .ok_or("当前处于游离 HEAD，请先在 Git 中切换到一个分支。".into())
 }
 
-fn target_branch(root: &Path, remote: &str, branch: &str) -> Result<String, String> {
+pub(crate) fn target_branch(root: &Path, remote: &str, branch: &str) -> Result<String, String> {
     let upstream_remote = optional(
         root,
         &["config", "--get", &format!("branch.{branch}.remote")],
@@ -287,8 +290,8 @@ pub struct RemoteRepository {
     dirty: bool,
     remotes: Vec<RemoteInfo>,
     default_remote: Option<String>,
-    state_token: String,
-    changed_paths: Vec<String>,
+    pub(crate) state_token: String,
+    pub(crate) changed_paths: Vec<String>,
 }
 
 fn counts(root: &Path, tracking: &str) -> (Option<u64>, Option<u64>) {
@@ -323,10 +326,10 @@ fn default_remote(root: &Path, current: Option<&str>, names: &[&str]) -> Option<
     }
 }
 
-fn inspect(app: &AppHandle, root: &Path) -> Result<RemoteRepository, String> {
+pub(crate) fn inspect(app: &AppHandle, root: &Path) -> Result<RemoteRepository, String> {
     let current = branch(root).ok();
     let head = optional(root, &["rev-parse", "--verify", "HEAD"]);
-    let dirty = !text(root, &["status", "--porcelain=v1", "--untracked-files=all"])?.is_empty();
+    let dirty = !text(root, &["status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none"])?.is_empty();
     let mut remotes = vec![];
     let mut signature = format!("{}\0{current:?}\0{head:?}", root.display());
     for name in text(root, &["remote"])?.lines() {
@@ -452,8 +455,8 @@ fn transfer_error(output: &Output) -> String {
     .into()
 }
 
-fn ensure_clean(root: &Path) -> Result<(), String> {
-    if !text(root, &["status", "--porcelain=v1", "--untracked-files=all"])?.is_empty() {
+pub(crate) fn ensure_clean(root: &Path) -> Result<(), String> {
+    if !text(root, &["status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none"])?.is_empty() {
         return Err("仓库内仍有未提交或未跟踪的文件。请先保存并创建版本，再获取更新。".into());
     }
     for name in [
@@ -483,7 +486,7 @@ fn fast_forward(root: &Path, tracking: &str) -> Result<(), String> {
     let (ahead, behind) = counts(root, tracking);
     if ahead.unwrap_or(0) > 0 && behind.unwrap_or(0) > 0 {
         return Err(
-            "本地与远程都有独立修改，历史已经分叉。已保留双方版本，请先在 Git 中合并后再同步。"
+            "本地与远程都有独立修改，历史已经分叉。请在版本管理中点击“比较与合并”，处理后再同步。"
                 .into(),
         );
     }

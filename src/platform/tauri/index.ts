@@ -8,8 +8,10 @@ import { tauriRemoteGit } from "./remoteGit";
 import { tauriLinks } from "./links";
 import { tauriWindow } from "./window";
 import { tauriUpdates } from "./updates";
+import { tauriAgent } from "./agent";
 
 export const tauriPlatform: PlatformServices = {
+  agent: tauriAgent,
   capabilities: tauriCapabilities,
   files: tauriFiles,
   dialogs: tauriDialogs,

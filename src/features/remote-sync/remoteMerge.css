@@ -1,0 +1,59 @@
+.remote-merge-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: #24282066; }
+.remote-merge-dialog { display: grid; grid-template-rows: auto minmax(0,1fr) auto; width: min(1400px,100%); height: calc(100vh - 48px); min-height: 0; color: #302e29; background: #fbfaf7; border: 1px solid #bdbbb2; font: 13px/1.6 "Microsoft YaHei UI","Segoe UI",sans-serif; }
+.remote-merge-dialog button, .remote-merge-dialog input, .remote-merge-dialog select { border: 1px solid #cbc8c0; border-radius: 0; background: transparent; padding: 6px 10px; color: inherit; font: inherit; }
+.remote-merge-dialog button { cursor: pointer; }
+.remote-merge-dialog button:hover:not(:disabled) { background: #eaece5; }
+.remote-merge-dialog button:disabled { opacity: .45; cursor: default; }
+.remote-merge-dialog button[aria-pressed="true"] { border-color: #657e69; background: #e8eee5; }
+.remote-merge-dialog button.is-primary { color: #fff; border-color: #556b5b; background: #556b5b; }
+.remote-merge-header { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: start; gap: 4px 12px; padding: 14px 18px; border-bottom: 1px solid #dcd9d1; }
+.remote-merge-header h2 { margin: 0; font-size: 18px; }
+.remote-merge-header p, .remote-merge-header small { grid-column: 1 / -1; margin: 2px 0 0; }
+.remote-merge-header span, .remote-merge-header small { color: #77736b; font-size: 11px; }
+.remote-merge-layout { display: grid; grid-template-columns: 240px minmax(0,1fr); overflow: hidden; }
+.remote-merge-files { overflow: auto; border-right: 1px solid #dcd9d1; padding: 10px; }
+.remote-merge-files h3 { font-size: 12px; margin: 10px 4px; }
+.remote-merge-files > button { display: grid; gap: 2px; width: 100%; text-align: left; border: 0; padding: 7px 8px; }
+.remote-merge-files > button > span { overflow-wrap: anywhere; }
+.remote-merge-files small { color: #7a776e; font-size: 10px; }
+.remote-merge-files > button.is-selected { background: #e8eae3; box-shadow: inset 2px 0 #607565; }
+.remote-merge-files small.is-conflict, .remote-merge-dialog .is-error, .remote-merge-dialog [role="alert"] { color: #a25c3d; }
+.remote-merge-history { padding: 4px 4px 12px; border-bottom: 1px solid #dedbd3; }
+.remote-merge-history summary { cursor: pointer; }
+.remote-merge-history ol { padding-left: 18px; font-size: 11px; }
+.remote-merge-history li { margin: 5px 0; overflow-wrap: anywhere; }
+.remote-merge-history code { color: #7c8075; font-size: 10px; }
+.remote-merge-preview { min-width: 0; min-height: 0; overflow: hidden; }
+.remote-merge-preview > p { padding: 16px; }
+.remote-file-review { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.remote-file-review > header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 16px; border-bottom: 1px solid #e1ded7; }
+.remote-file-review > header > strong { overflow-wrap: anywhere; }
+.remote-file-review > header label { display: flex; gap: 8px; align-items: center; font-size: 11px; }
+.remote-file-review select { max-width: 220px; }
+.remote-review-modes { display: flex; gap: 6px; padding: 8px 16px; border-bottom: 1px solid #e1ded7; }
+.remote-review-modes button { border: 0; font-size: 12px; padding: 4px 8px; }
+.remote-file-review > .rendered-revision-viewer { flex: 1; min-height: 0; width: auto; }
+.remote-file-content { flex: 1; min-height: 0; overflow: auto; padding: 14px 18px; }
+.remote-file-content pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.7 Consolas,monospace; }
+.remote-source-diff { margin: 0; }
+.remote-source-diff > span { display: inline; }
+.remote-source-diff .is-added { color: #31543d; background: #e6eee3; }
+.remote-source-diff .is-removed { color: #875445; background: #f4e6df; }
+.remote-source-diff .is-gap { color: #928f86; }
+.remote-file-sides, .remote-merge-dialog .merge-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.remote-file-sides > section { min-width: 0; }
+.remote-file-sides h3 { margin-top: 0; font-size: 13px; }
+.remote-file-sides img { display: block; max-width: 100%; max-height: 320px; object-fit: contain; }
+.remote-merge-dialog .merge-choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.remote-merge-dialog .merge-conflict { border-top: 1px solid #dedbd3; padding: 14px 0; }
+.remote-merge-dialog .merge-conflict pre { max-height: 200px; overflow: auto; }
+.remote-resolution > p { margin-top: 0; }
+.remote-resolved { color: #48654d; }
+.remote-result-label { display: grid; gap: 6px; margin: 16px 0 8px; }
+.remote-result-label textarea { width: 100%; min-height: 150px; resize: vertical; border: 1px solid #cbc8c0; background: #fffefa; padding: 10px; color: inherit; font: 12px/1.7 Consolas,monospace; }
+.remote-json-resolution details { margin: 10px 0; }
+.remote-merge-footer { display: grid; grid-template-columns: minmax(180px,1fr) minmax(180px,1fr) auto; align-items: center; gap: 8px 16px; border-top: 1px solid #dcd9d1; padding: 10px 18px; font-size: 12px; }
+.remote-merge-footer p { margin: 2px 0; }
+.remote-merge-footer label { display: grid; gap: 4px; }
+.remote-merge-footer input { min-width: 0; width: 100%; }
+@media (max-width: 1000px) { .remote-merge-backdrop { padding: 10px; } .remote-merge-dialog { height: calc(100vh - 20px); } .remote-merge-layout { grid-template-columns: 190px minmax(0,1fr); } .remote-merge-footer { grid-template-columns: 1fr auto; } .remote-merge-footer > div { grid-column: 1 / -1; } }

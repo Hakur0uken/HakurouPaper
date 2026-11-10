@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Editor, defaultValueCtx, rootCtx } from "@milkdown/core";
+import { Editor, defaultValueCtx, rootCtx, parserCtx, serializerCtx } from "@milkdown/core";
 import { $prose } from "@milkdown/utils";
 import { Plugin } from "@milkdown/prose/state";
 import { commonmark } from "@milkdown/preset-commonmark";
 import { gfm } from "@milkdown/preset-gfm";
 import { history } from "@milkdown/plugin-history";
-import { listener, listenerCtx } from "@milkdown/plugin-listener";
+import { listener } from "@milkdown/plugin-listener";
 import { nord } from "@milkdown/theme-nord";
 import { EditorControls } from "./EditorControls";
 import { SourceLineNumbers } from "./editor/SourceLineNumbers";
+import { MarkdownSourceEditor } from "./editor/MarkdownSourceEditor";
+import { createSourceEditing, type LiveEditor } from "./editor/sourceEditing";
+import { formatRestoreKey } from "./editor/formatRestore";
+import { ExternalMergeDialog, type ExternalMergeInput, type ExternalMergeResult, type MergeSnapshot } from "./collaboration/ExternalMergeDialog";
+import { metadataEquivalent } from "./collaboration/merge";
+import { useAgentBridge } from "./collaboration/useAgentBridge";
 import { featureRegistry, releaseHistoricalAssetsForDocument, releaseRevisionDataForDocument, RenderedRevisionViewer, VersionDiffViewer, type FeatureDocumentContext } from "./features";
 import { updateWorkingDirectory } from "./features/remote-sync/workflows";
 import { useSoftwareUpdate } from "./features/software-update/useSoftwareUpdate";
@@ -115,8 +121,6 @@ type DocumentTab = {
   title: string;
   path: string | null;
   content: string;
-  /** Value used only when Milkdown is first created or deliberately reloaded. */
-  initialContent: string;
   /** Explicit replacement generation; ordinary saves must never change this. */
   documentLoadRevision: number;
   isDirty: boolean;
@@ -126,6 +130,7 @@ type DocumentTab = {
   savedRevision: number;
   /** Fingerprint of the Markdown content most recently confirmed on disk. */
   diskFingerprint: string | null;
+  diskBase: MergeSnapshot | null;
   /** A newer on-disk revision kept aside while this tab has unsaved edits. */
   externalChange: ExternalDocumentChange | null;
   assetFolder: string | null;
@@ -149,12 +154,14 @@ type ExternalDocumentChange = LoadedDocument & {
 };
 
 type WritingEditorProps = {
+  sourceMode: boolean;
   documentId: string;
   markdown: string;
   showLineNumbers: boolean;
-  initialContent: string;
   documentLoadRevision: number;
   onContentChange: (documentId: string, markdown: string) => void;
+  onEditorReady: (documentId: string, editor: LiveEditor | null) => void;
+  onHistoryContext: (documentId: string, context: string) => void;
   documentPath: string | null;
   assetFolder: string | null;
   assets: AssetV1[];
@@ -229,9 +236,9 @@ function sameDocumentPath(left: string, right: string) {
   return left.replace(/\//g, "\\").toLocaleLowerCase() === right.replace(/\//g, "\\").toLocaleLowerCase();
 }
 
-async function loadDocumentFromDisk(path: string): Promise<LoadedDocument> {
+async function loadDocumentFromDisk(path: string, knownAssetFolder?: string | null): Promise<LoadedDocument> {
   const content = await platform.files.readMarkdown(path);
-  const assetFolder = findAssetFolder(content);
+  const assetFolder = knownAssetFolder ?? findAssetFolder(content);
   const storedFormat = await platform.files.readDocumentFormat(path, assetFolder);
   const parsedSidecar = parseDocumentSidecar(storedFormat?.content);
   return {
@@ -244,23 +251,41 @@ async function loadDocumentFromDisk(path: string): Promise<LoadedDocument> {
   };
 }
 
+function documentMetadata(document: LoadedDocument) {
+  return serializeDocumentSidecar({ schemaVersion: HAKUROU_SCHEMA_VERSION, document: document.document, assets: document.assets, format: document.formatSettings });
+}
+
+function diskSnapshot(document: LoadedDocument): MergeSnapshot {
+  return { content: document.content, metadata: documentMetadata(document) };
+}
+
+function alignLoadedDocument(tab: DocumentTab, loaded: LoadedDocument): LoadedDocument {
+  if (loaded.sidecarContent || !tab.diskBase) return loaded;
+  const base = parseDocumentSidecar(tab.diskBase.metadata).sidecar;
+  return { ...loaded, document: base.document, assets: collectDocumentImageAssets(loaded.content, base.assets) };
+}
+
+function unchangedOnDisk(tab: DocumentTab, loaded: LoadedDocument) {
+  return loaded.content === tab.diskBase?.content && metadataEquivalent(documentMetadata(loaded), tab.diskBase.metadata);
+}
+
 function createDocument(
   markdown = starterDocument,
   path: string | null = null,
   title = "未命名文稿",
-  options: { assetFolder?: string | null; document?: DocumentV1; assets?: AssetV1[]; formatSettings?: DocumentFormatSettings } = {},
+  options: { assetFolder?: string | null; document?: DocumentV1; assets?: AssetV1[]; formatSettings?: DocumentFormatSettings; diskBase?: MergeSnapshot } = {},
 ): DocumentTab {
   return {
     id: crypto.randomUUID(),
     title,
     path,
     content: markdown,
-    initialContent: markdown,
     documentLoadRevision: 0,
     isDirty: false,
     editRevision: 0,
     savedRevision: 0,
     diskFingerprint: path ? documentContentFingerprint(markdown) : null,
+    diskBase: options.diskBase ?? null,
     externalChange: null,
     assetFolder: options.assetFolder ?? findAssetFolder(markdown),
     document: options.document ?? createDocumentSchema(),
@@ -274,12 +299,12 @@ function replaceTabFromDisk(tab: DocumentTab, loaded: LoadedDocument): DocumentT
   return {
     ...tab,
     content: loaded.content,
-    initialContent: loaded.content,
     documentLoadRevision: tab.documentLoadRevision + 1,
     isDirty: false,
     editRevision: loadedRevision,
     savedRevision: loadedRevision,
     diskFingerprint: documentContentFingerprint(loaded.content),
+    diskBase: diskSnapshot(loaded),
     externalChange: null,
     assetFolder: loaded.assetFolder,
     document: loaded.document,
@@ -299,8 +324,12 @@ function countWords(markdown: string) {
   return cjkCharacters + latinWords;
 }
 
-function WritingEditor({ documentId, markdown, showLineNumbers, initialContent, documentLoadRevision, onContentChange, documentPath, assetFolder, assets, onAssetImported, onAssetResize, formatSettings, onFormatChange, onSelectionChange, text, tableStyle, firstLineIndent, showRevisionChanges, revisionLocations, revisionBaselineKey, onOpenRevisionPreview }: WritingEditorProps) {
+function WritingEditor({ sourceMode, documentId, markdown, showLineNumbers, documentLoadRevision, onContentChange, onEditorReady, onHistoryContext, documentPath, assetFolder, assets, onAssetImported, onAssetResize, formatSettings, onFormatChange, onSelectionChange, text, tableStyle, firstLineIndent, showRevisionChanges, revisionLocations, revisionBaselineKey, onOpenRevisionPreview }: WritingEditorProps) {
   const mountRef = useRef<HTMLDivElement>(null);
+  const sourceInputRef = useRef<HTMLTextAreaElement>(null);
+  const liveEditorRef = useRef<LiveEditor | null>(null);
+  const sourceModeRef = useRef(sourceMode);
+  sourceModeRef.current = sourceMode;
   const [editorView, setEditorView] = useState<import("@milkdown/prose/view").EditorView | null>(null);
   const [scrollContainer, setScrollContainer] = useState<HTMLElement | null>(null);
   const unresolvedFormatSettingsRef = useRef(emptyDocumentFormatSettings());
@@ -309,6 +338,8 @@ function WritingEditor({ documentId, markdown, showLineNumbers, initialContent, 
   const currentDocumentPathRef = useRef(documentPath);
   const currentAssetFolderRef = useRef(assetFolder);
   const contentChangeRef = useRef(onContentChange);
+  const editorReadyRef = useRef(onEditorReady);
+  const historyContextRef = useRef(onHistoryContext);
   const assetImportedRef = useRef(onAssetImported);
   const assetResizeRef = useRef(onAssetResize);
   const formatChangeRef = useRef(onFormatChange);
@@ -319,6 +350,8 @@ function WritingEditor({ documentId, markdown, showLineNumbers, initialContent, 
   currentDocumentPathRef.current = documentPath;
   currentAssetFolderRef.current = assetFolder;
   contentChangeRef.current = onContentChange;
+  editorReadyRef.current = onEditorReady;
+  historyContextRef.current = onHistoryContext;
   assetImportedRef.current = onAssetImported;
   assetResizeRef.current = onAssetResize;
   formatChangeRef.current = onFormatChange;
@@ -357,12 +390,42 @@ function WritingEditor({ documentId, markdown, showLineNumbers, initialContent, 
       },
     }));
     const editor = Editor.make();
+    let contextDocument: import("@milkdown/prose/model").Node | undefined;
+    const sourceEditing = $prose((ctx) => createSourceEditing(
+      markdown,
+      (markdown) => ctx.get(parserCtx)(markdown),
+      (doc) => ctx.get(serializerCtx)(doc),
+      (markdown) => contentChangeRef.current(documentId, markdown),
+      (editor) => {
+        if (disposed) return;
+        liveEditorRef.current = editor;
+        editorReadyRef.current(documentId, editor && { ...editor, focus: () => {
+          if (sourceModeRef.current) sourceInputRef.current?.focus({ preventScroll: true });
+          else editor.focus();
+        } });
+      },
+      (context) => {
+        const sidecar = parseDocumentSidecar(context).sidecar;
+        currentFormatSettingsRef.current = parseDocumentFormatSettings(sidecar.format);
+        currentAssetsRef.current = sidecar.assets;
+        if (contextDocument) unresolvedFormatSettingsRef.current = collectUnresolvedDocumentFormatSettings(contextDocument, currentFormatSettingsRef.current);
+        historyContextRef.current(documentId, context);
+      },
+      (transaction, context) => {
+        const settings = parseDocumentFormatSettings(parseDocumentSidecar(context).sidecar.format);
+        const defaults = readApplicationAppearance();
+        contextDocument = transaction.doc;
+        return transaction.setMeta(formatRestoreKey, { settings,
+          tableStyle: settings.defaults.tableStyle ?? defaults.tableStyle,
+          firstLineIndent: settings.defaults.firstLineIndent ?? defaults.firstLineIndent,
+        });
+      },
+    ));
     editor
       .config(nord)
       .config((ctx) => {
         ctx.set(rootCtx, editorHost);
-        ctx.set(defaultValueCtx, initialContent);
-        ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => contentChangeRef.current(documentId, markdown));
+        ctx.set(defaultValueCtx, markdown);
       })
       .use(commonmark)
       .use(gfm)
@@ -390,9 +453,12 @@ function WritingEditor({ documentId, markdown, showLineNumbers, initialContent, 
         const location = revisionLocationsRef.current.find((candidate) => candidate.id === locationId);
         if (location) openRevisionPreviewRef.current(location);
       }))
+      .use(sourceEditing)
       .use(editorControlsBridge);
     void editor.create().catch(console.error);
     return () => {
+      editorReadyRef.current(documentId, null);
+      liveEditorRef.current = null;
       disposed = true;
       setEditorView(null);
       void editor.destroy().catch(console.error);
@@ -400,7 +466,8 @@ function WritingEditor({ documentId, markdown, showLineNumbers, initialContent, 
     };
   // A save may update path and saved state, but must preserve the live
   // ProseMirror instance, selection, scroll position, and undo history.
-  // `initialContent` is intentionally read only for a true document load.
+  // The latest Markdown is read when mounting a tab or explicitly reloading;
+  // ordinary input and saves must never recreate the editor.
   }, [documentId, documentLoadRevision]);
 
   useEffect(() => {
@@ -420,22 +487,33 @@ function WritingEditor({ documentId, markdown, showLineNumbers, initialContent, 
       .setMeta(revisionDecorationPluginKey, setRevisionDecorations(showRevisionChanges, revisionLocations, revisionBaselineKey)));
   }, [editorView, revisionBaselineKey, revisionLocations, showRevisionChanges]);
 
+  useEffect(() => {
+    if (!editorView) return;
+    if (sourceMode) sourceInputRef.current?.focus({ preventScroll: true });
+    else editorView.focus();
+    onSelectionChange(null);
+  }, [sourceMode, editorView, onSelectionChange]);
+
   const navigateRevisionLocation = useCallback((location: RevisionLocation) => {
     if (location.kind === "removed") onOpenRevisionPreview(location);
     else if (editorView) scrollToRevisionLocation(editorView, location.id);
   }, [editorView, onOpenRevisionPreview]);
 
   return <div className={`writing-editor-root${showRevisionChanges ? " is-showing-revision-changes" : ""}`}>
-    <div ref={mountRef} data-milkdown-root="true" onClickCapture={handleDocumentLinkClick} onAuxClickCapture={handleDocumentLinkClick} />
-    {showLineNumbers && <SourceLineNumbers view={editorView} markdown={markdown} />}
-    {showRevisionChanges && <RevisionOverviewRuler locations={revisionLocations} onNavigate={navigateRevisionLocation} scrollContainer={scrollContainer} className="editor-revision-overview" />}
-    <EditorControls view={editorView} onSelectionChange={onSelectionChange} text={text} />
+    <div ref={mountRef} hidden={sourceMode} data-milkdown-root="true" onClickCapture={handleDocumentLinkClick} onAuxClickCapture={handleDocumentLinkClick} />
+    <MarkdownSourceEditor markdown={markdown} hidden={!sourceMode} ready={Boolean(editorView)} showLineNumbers={showLineNumbers} inputRef={sourceInputRef} text={text}
+      onChange={(markdown) => liveEditorRef.current?.replace(markdown)}
+      onHistory={(redo) => { if (redo) liveEditorRef.current?.redo(); else liveEditorRef.current?.undo(); }}
+      onSelectionChange={onSelectionChange} />
+    {!sourceMode && showLineNumbers && <SourceLineNumbers view={editorView} markdown={markdown} />}
+    {!sourceMode && showRevisionChanges && <RevisionOverviewRuler locations={revisionLocations} onNavigate={navigateRevisionLocation} scrollContainer={scrollContainer} className="editor-revision-overview" />}
+    {!sourceMode && <EditorControls view={editorView} onSelectionChange={onSelectionChange} text={text} />}
   </div>;
 }
 
 function App() {
   const [startupReady, setStartupReady] = useState(false);
-  const [tabs, setTabs] = useState<DocumentTab[]>(() => [createDocument()]);
+  const [tabs, setTabsState] = useState<DocumentTab[]>(() => [createDocument()]);
   const [activeTabId, setActiveTabId] = useState(() => tabs[0]!.id);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [language, setLanguage] = useState<UiLanguage>(() => window.localStorage.getItem(uiLanguageStorageKey) === "en" ? "en" : "zh");
@@ -457,13 +535,33 @@ function App() {
   const [activeVersionComparison, setActiveVersionComparison] = useState<ActiveVersionComparison | null>(null);
   const [showRevisionChanges, setShowRevisionChanges] = useState(() => window.localStorage.getItem(revisionChangesVisibleStorageKey) === "true");
   const [showLineNumbers, setShowLineNumbers] = useState(() => window.localStorage.getItem(lineNumbersVisibleStorageKey) === "true");
+  const [sourceMode, setSourceMode] = useState(false);
   const [restoreDialog, setRestoreDialog] = useState<RestoreDialog>(null);
   const [isRestoringVersion, setIsRestoringVersion] = useState(false);
   const [dismissedExternalChangeKey, setDismissedExternalChangeKey] = useState<string | null>(null);
+  const [externalMerge, setExternalMerge] = useState<ExternalMergeInput | null>(null);
   const menuListRef = useRef<HTMLElement>(null);
   const tabsRef = useRef(tabs);
+  const setTabs = useCallback((change: DocumentTab[] | ((tabs: DocumentTab[]) => DocumentTab[])) => {
+    const next = typeof change === "function" ? change(tabsRef.current) : change;
+    tabsRef.current = next;
+    setTabsState(next);
+  }, []);
+  const liveEditorsRef = useRef(new Map<string, LiveEditor>());
+  const registerEditor = useCallback((id: string, editor: LiveEditor | null) => {
+    if (editor) liveEditorsRef.current.set(id, editor);
+    else liveEditorsRef.current.delete(id);
+  }, []);
+  const applyHistoryContext = useCallback((id: string, context: string) => {
+    const parsed = parseDocumentSidecar(context).sidecar;
+    setTabs((tabs) => tabs.map((tab) => tab.id !== id ? tab : {
+      ...tab, document: parsed.document, assets: collectDocumentImageAssets(tab.content, parsed.assets),
+      formatSettings: parseDocumentFormatSettings(parsed.format), isDirty: true, editRevision: tab.editRevision + 1,
+    }));
+  }, [setTabs]);
   const externalChangeTimersRef = useRef(new Map<string, number>());
-  const ownMarkdownWritesRef = useRef(new Map<string, { fingerprint: string; expiresAt: number }>());
+  const ownMarkdownWritesRef = useRef(new Map<string, { fingerprint: string; metadata: string; expiresAt: number }>());
+  const savingDocumentsRef = useRef(new Set<string>());
   const watchedMarkdownPathsRef = useRef(new Set<string>());
   const markdownWatchQueueRef = useRef(Promise.resolve());
   const recentFilesMenuTimerRef = useRef<number | null>(null);
@@ -728,10 +826,11 @@ function App() {
       const fingerprint = documentContentFingerprint(loaded.content);
       setTabs((currentTabs) => currentTabs.map((tab) => {
         if (tab.id !== existingDocument.id) return tab;
-        if (!tab.isDirty) return tab.diskFingerprint === fingerprint ? tab : replaceTabFromDisk(tab, loaded);
-        if (fingerprint === tab.diskFingerprint) return tab.externalChange ? { ...tab, externalChange: null } : tab;
-        if (fingerprint === documentContentFingerprint(tab.content)) return { ...tab, diskFingerprint: fingerprint, externalChange: null };
-        return { ...tab, externalChange: { ...loaded, fingerprint, detectedAt: Date.now() } };
+        const aligned = alignLoadedDocument(tab, loaded);
+        if (unchangedOnDisk(tab, aligned)) return tab.externalChange ? { ...tab, externalChange: null } : tab;
+        if (!tab.isDirty) return replaceTabFromDisk(tab, aligned);
+        if (aligned.content === tab.content && metadataEquivalent(documentMetadata(aligned), documentMetadata(tab))) return { ...tab, diskFingerprint: fingerprint, diskBase: diskSnapshot(aligned), externalChange: null };
+        return { ...tab, externalChange: { ...aligned, fingerprint: documentContentFingerprint(aligned.content + documentMetadata(aligned)), detectedAt: Date.now() } };
       }));
       activateDocument(existingDocument.id);
       return;
@@ -742,18 +841,17 @@ function App() {
       assetFolder: loaded.assetFolder,
       document: loaded.document,
       assets: loaded.assets,
+      diskBase: diskSnapshot(loaded),
     });
     if (currentTabs.length === 1 && isPristineWelcomeDocument(currentTabs[0]!)) {
       // Do not reuse the welcome tab's identity here. The editor deliberately
       // preserves its live ProseMirror state across routine prop changes, so a
       // reused ID would leave the welcome document rendered after opening a
       // real file.
-      tabsRef.current = [document];
       setTabs([document]);
       setActiveTabId(document.id);
       return;
     }
-    tabsRef.current = [...currentTabs, document];
     setTabs((currentTabs) => [...currentTabs, document]);
     setActiveTabId(document.id);
   }, [activateDocument]);
@@ -796,56 +894,65 @@ function App() {
   const processExternalDocumentChange = useCallback(async (documentId: string, path: string) => {
     let loaded: LoadedDocument;
     try {
-      loaded = await loadDocumentFromDisk(path);
+      loaded = await loadDocumentFromDisk(path, tabsRef.current.find((tab) => tab.id === documentId)?.assetFolder);
+      // A sidecar directory may have appeared since this file was opened.
+      await platform.files.watchMarkdownFile(path, loaded.assetFolder);
     } catch {
       // An editor may briefly replace a file through its own temporary path.
       // A later native event will retry once the replacement is complete.
-      return;
+      return false;
     }
     const fingerprint = documentContentFingerprint(loaded.content);
     const ownWrite = ownMarkdownWritesRef.current.get(path);
     if (ownWrite && ownWrite.expiresAt < Date.now()) ownMarkdownWritesRef.current.delete(path);
-    if (ownWrite?.fingerprint === fingerprint && ownWrite.expiresAt >= Date.now()) {
+    if (ownWrite?.fingerprint === fingerprint && ownWrite.expiresAt >= Date.now() && metadataEquivalent(documentMetadata(loaded), ownWrite.metadata)) {
       setTabs((currentTabs) => currentTabs.map((tab) => (
         tab.id === documentId && tab.path && sameDocumentPath(tab.path, path) && tab.diskFingerprint !== fingerprint
-          ? { ...tab, diskFingerprint: fingerprint, externalChange: tab.externalChange?.fingerprint === fingerprint ? null : tab.externalChange }
+          ? { ...tab, diskFingerprint: fingerprint, diskBase: diskSnapshot(loaded), externalChange: null }
           : tab
       )));
-      return;
+      return true;
     }
     let changed = false;
     setTabs((currentTabs) => currentTabs.map((tab) => {
       if (tab.id !== documentId || !tab.path || !sameDocumentPath(tab.path, path)) return tab;
-      if (tab.diskFingerprint === fingerprint) return tab.externalChange ? { ...tab, externalChange: null } : tab;
-      if (fingerprint === documentContentFingerprint(tab.content)) {
+      const aligned = alignLoadedDocument(tab, loaded);
+      if (unchangedOnDisk(tab, aligned)) return tab.externalChange ? { ...tab, externalChange: null } : tab;
+      if (aligned.content === tab.content && metadataEquivalent(documentMetadata(aligned), documentMetadata(tab))) {
         changed = true;
-        return { ...tab, diskFingerprint: fingerprint, externalChange: null };
+        return { ...tab, diskFingerprint: fingerprint, diskBase: diskSnapshot(aligned), externalChange: null };
       }
       changed = true;
-      if (!tab.isDirty) return replaceTabFromDisk(tab, loaded);
-      if (tab.externalChange?.fingerprint === fingerprint) return tab;
-      return { ...tab, externalChange: { ...loaded, fingerprint, detectedAt: Date.now() } };
+      if (!tab.isDirty) return replaceTabFromDisk(tab, aligned);
+      const changeFingerprint = documentContentFingerprint(aligned.content + documentMetadata(aligned));
+      if (tab.externalChange?.fingerprint === changeFingerprint) return tab;
+      return { ...tab, externalChange: { ...aligned, fingerprint: changeFingerprint, detectedAt: Date.now() } };
     }));
     if (changed) setWorkingTreeEpoch((epoch) => epoch + 1);
+    return true;
   }, []);
 
   const reloadDocumentFromDisk = useCallback(async (documentId: string, path: string) => {
-    const loaded = await loadDocumentFromDisk(path);
+    const loaded = await loadDocumentFromDisk(path, tabsRef.current.find((tab) => tab.id === documentId)?.assetFolder);
     setTabs((currentTabs) => currentTabs.map((tab) => (
       tab.id === documentId && tab.path && sameDocumentPath(tab.path, path)
-        ? replaceTabFromDisk(tab, loaded)
+        ? replaceTabFromDisk(tab, alignLoadedDocument(tab, loaded))
         : tab
     )));
     setWorkingTreeEpoch((epoch) => epoch + 1);
   }, []);
 
-  const handleSave = useCallback(async () => {
-    const documentId = activeDocument.id;
-    let targetPath = activeDocument.path;
+  const handleSave = useCallback(async (requestedId = activeDocument.id) => {
+    const openedDocument = tabsRef.current.find((tab) => tab.id === requestedId);
+    if (!openedDocument || savingDocumentsRef.current.has(requestedId)) return false;
+    savingDocumentsRef.current.add(requestedId);
+    return (async () => {
+    const documentId = openedDocument.id;
+    let targetPath = openedDocument.path;
     if (!targetPath) {
       const chosenPath = await platform.dialogs.saveMarkdown({
         title: text.saveMarkdownDocument,
-        defaultPath: `${activeDocument.title || text.untitledDocument}.md`,
+        defaultPath: `${openedDocument.title || text.untitledDocument}.md`,
         filter: { name: text.markdown, extensions: ["md"] },
       });
       if (!chosenPath) return false;
@@ -854,7 +961,7 @@ function App() {
     try {
       // Capture one coherent bundle before I/O. Later editor mutations advance
       // editRevision and are intentionally left dirty when this save completes.
-      const savingDocument = tabsRef.current.find((tab) => tab.id === documentId) ?? activeDocument;
+      const savingDocument = tabsRef.current.find((tab) => tab.id === documentId) ?? openedDocument;
       const savingRevision = savingDocument.editRevision;
       if (savingDocument.externalChange) {
         setDismissedExternalChangeKey(null);
@@ -862,16 +969,15 @@ function App() {
       }
       if (savingDocument.path && sameDocumentPath(savingDocument.path, targetPath)) {
         try {
-          const diskContent = await platform.files.readMarkdown(targetPath);
-          if (documentContentFingerprint(diskContent) !== savingDocument.diskFingerprint) {
+          const disk = alignLoadedDocument(savingDocument, await loadDocumentFromDisk(targetPath, savingDocument.assetFolder));
+          if (!unchangedOnDisk(savingDocument, disk)) {
             await processExternalDocumentChange(documentId, targetPath);
             setDismissedExternalChangeKey(null);
             return false;
           }
-        } catch {
-          // A missing file will be handled by the native watcher if it is
-          // recreated. Saving a document that was deliberately removed is
-          // still allowed as a normal save-as-place operation.
+        } catch (error) {
+          window.alert(String(error));
+          return false;
         }
       }
       const formatSettings = {
@@ -879,15 +985,16 @@ function App() {
         documentFingerprint: documentContentFingerprint(savingDocument.content),
       };
       const savingFingerprint = documentContentFingerprint(savingDocument.content);
-      ownMarkdownWritesRef.current.set(targetPath, { fingerprint: savingFingerprint, expiresAt: Date.now() + 2_500 });
       const sidecarContent = serializeDocumentSidecar({
         schemaVersion: HAKUROU_SCHEMA_VERSION,
         document: savingDocument.document,
         assets: savingDocument.assets,
         format: formatSettings,
       });
-      await platform.files.writeMarkdown(targetPath, savingDocument.content);
+      ownMarkdownWritesRef.current.set(targetPath, { fingerprint: savingFingerprint, metadata: sidecarContent, expiresAt: Date.now() + 2_500 });
+      await platform.files.writeMarkdown(targetPath, savingDocument.content, savingDocument.path && sameDocumentPath(savingDocument.path, targetPath) ? savingDocument.diskBase?.content : undefined);
       const storedFormat = await platform.files.writeDocumentFormat(targetPath, savingDocument.assetFolder, sidecarContent);
+      await platform.files.watchMarkdownFile(targetPath, storedFormat.assetFolder);
       const title = (targetPath.split(/[\\/]/).pop() ?? "未命名文稿").replace(/\.md$/i, "");
       const snapshotWasCurrent = tabsRef.current.find((tab) => tab.id === documentId)?.editRevision === savingRevision;
       setTabs((currentTabs) => currentTabs.map((tab) => {
@@ -896,7 +1003,7 @@ function App() {
           // A newer in-memory edit was not part of the just-written snapshot.
           // Preserve its metadata and visible dirty state instead of claiming
           // that the disk now contains it.
-          return { ...tab, path: targetPath, title, isDirty: true };
+          return { ...tab, path: targetPath, title, isDirty: true, diskFingerprint: savingFingerprint, diskBase: { content: savingDocument.content, metadata: sidecarContent } };
         }
         return {
           ...tab,
@@ -907,6 +1014,7 @@ function App() {
           isDirty: false,
           savedRevision: savingRevision,
           diskFingerprint: savingFingerprint,
+          diskBase: { content: savingDocument.content, metadata: sidecarContent },
           externalChange: null,
         };
       }));
@@ -919,7 +1027,18 @@ function App() {
       window.alert(String(error));
       return false;
     }
-  }, [activeDocument, processExternalDocumentChange, rememberRecentFile, text.markdown, text.saveMarkdownDocument, text.untitledDocument]);
+    })().finally(() => savingDocumentsRef.current.delete(requestedId));
+  }, [activeDocument.id, processExternalDocumentChange, rememberRecentFile, text.markdown, text.saveMarkdownDocument, text.untitledDocument]);
+
+  useAgentBridge(startupReady, {
+    documents: () => tabsRef.current.map((tab) => ({ id: tab.id, title: tab.title, path: tab.path,
+      revision: `${tab.id}:${tab.editRevision}`, dirty: tab.isDirty, active: tab.id === activeDocument.id,
+      externalChange: !!tab.externalChange, content: liveEditorsRef.current.get(tab.id)?.read() ?? tab.content,
+    })),
+    editor: (id) => liveEditorsRef.current.get(id),
+    busy: (id) => savingDocumentsRef.current.has(id) || repositoryOperationRef.current || !!externalMerge || !!pendingClose,
+    save: (id) => handleSave(id),
+  });
 
   const reloadActiveDocumentFromDisk = useCallback(async () => {
     if (!activeDocument.path) throw new Error("当前文稿尚未保存。");
@@ -935,20 +1054,20 @@ function App() {
       const directory = path.slice(0, path.lastIndexOf("/") + 1);
       return changed.some((item) => sameDocumentPath(item, path) || (tab.assetFolder && sameDocumentPath(item.slice(0, `${directory}assets/${tab.assetFolder}/`.length), `${directory}assets/${tab.assetFolder}/`)));
     });
-    await Promise.all(open.map(async (snapshot) => {
-      try {
-        const loaded = await loadDocumentFromDisk(snapshot.path!);
-        setTabs((current) => current.map((tab) => {
-          if (tab.id !== snapshot.id || tab.path !== snapshot.path) return tab;
-          if (!tab.isDirty) return replaceTabFromDisk(tab, loaded);
-          // Editing can continue while a network request is in flight. Preserve
-          // those edits and expose the updated disk copy for explicit review.
-          return { ...tab, externalChange: { ...loaded, fingerprint: documentContentFingerprint(loaded.content), detectedAt: Date.now() } };
-        }));
-      } catch { /* A removed/renamed file leaves its open tab intact. */ }
-    }));
+    // Use the same content + sidecar baseline as native watcher events. Editing
+    // may have continued while the repository operation was in flight.
+    const results = await Promise.all(open.map((tab) => processExternalDocumentChange(tab.id, tab.path!)));
+    const unreadable = open.filter((_, index) => !results[index]);
+    if (unreadable.length) {
+      // A confirmed repository update can delete/rename an open document. Keep
+      // its in-memory copy visibly unsaved instead of presenting stale content
+      // as if it were still saved on disk. The original save baseline remains.
+      const ids = new Set(unreadable.map((tab) => tab.id));
+      setTabs((current) => current.map((tab) => ids.has(tab.id) ? { ...tab, isDirty: true, editRevision: tab.editRevision + 1 } : tab));
+      window.alert(text.remoteSync.reopenFailed(unreadable.map((tab) => tab.path!).join("\n")));
+    }
     setWorkingTreeEpoch((epoch) => epoch + 1);
-  }, []);
+  }, [processExternalDocumentChange, text.remoteSync]);
 
   const handleUpdateWorkingDirectory = useCallback(async () => {
     if (!activeDocument.path || repositoryOperationRef.current) return;
@@ -1008,6 +1127,36 @@ function App() {
     setDismissedExternalChangeKey(activeExternalChangeKey);
     setActiveVersionComparison({ initialPath: null, versionId: null, presentation: "rendered", externalChange: true });
   }, [activeDocument.externalChange, activeExternalChangeKey]);
+
+  const openExternalMerge = useCallback(() => {
+    const tab = tabsRef.current.find((tab) => tab.id === activeDocument.id);
+    if (!tab?.path || !tab.externalChange || !tab.diskBase) return;
+    setExternalMerge({ documentId: tab.id, path: tab.path, revision: tab.editRevision,
+      base: tab.diskBase, local: diskSnapshot(tab), disk: {
+        content: tab.externalChange.content,
+        metadata: documentMetadata(tab.externalChange),
+      } });
+    setDismissedExternalChangeKey(activeExternalChangeKey);
+  }, [activeDocument.id, activeExternalChangeKey]);
+
+  const applyExternalMerge = useCallback(async (input: ExternalMergeInput, result: ExternalMergeResult) => {
+    const stale = () => new Error(language === "zh" ? "文稿或磁盘又有了变化，请取消后重新合并。" : "The document or disk changed again. Cancel and reopen the merge.");
+    const opened = tabsRef.current.find((tab) => tab.id === input.documentId);
+    const fresh = opened ? alignLoadedDocument(opened, await loadDocumentFromDisk(input.path, opened.assetFolder)) : null;
+    const tab = tabsRef.current.find((tab) => tab.id === input.documentId);
+    const diskMetadata = fresh ? documentMetadata(fresh) : null;
+    if (!tab || !fresh || tab.path !== input.path || tab.editRevision !== input.revision || fresh.content !== input.disk.content || !diskMetadata || !metadataEquivalent(diskMetadata, input.disk.metadata)) {
+      await processExternalDocumentChange(input.documentId, input.path); throw stale();
+    }
+    const editor = liveEditorsRef.current.get(tab.id);
+    if (!editor) throw new Error(language === "zh" ? "请先切回这篇文稿再合并。" : "Select this document before merging.");
+    editor.replace(result.content, { before: documentMetadata(tab), after: result.metadata });
+    setTabs((tabs) => tabs.map((current) => current.id !== tab.id ? current : {
+      ...current, diskBase: input.disk, diskFingerprint: documentContentFingerprint(input.disk.content),
+      externalChange: null, isDirty: true,
+    }));
+    setWorkingTreeEpoch((epoch) => epoch + 1);
+  }, [language, processExternalDocumentChange, setTabs]);
 
   const planVersionRestore = useCallback(async (targetCommitId: string, targetTitle: string) => {
     if (!activeDocument.path) return;
@@ -1164,9 +1313,13 @@ function App() {
   }, [exitApplication, tabs, softwareUpdate.controller]);
 
   const runEditCommand = useCallback((command: "undo" | "redo" | "cut" | "copy" | "paste") => {
-    document.execCommand(command);
+    const editor = liveEditorsRef.current.get(activeDocument.id);
+    if (editor && !activeVersionComparison && (command === "undo" || command === "redo")) {
+      editor[command]();
+      editor.focus();
+    } else document.execCommand(command);
     setOpenMenu(null);
-  }, []);
+  }, [activeDocument.id, activeVersionComparison]);
 
   const handleWindowControl = useCallback(async (action: "minimize" | "maximize" | "close") => {
     if (action === "minimize") await platform.window.minimize();
@@ -1204,17 +1357,14 @@ function App() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (softwareUpdate.controller.snapshot().open) return;
+      if (!event.isComposing && !activeVersionComparison && (event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "m") { event.preventDefault(); setSourceMode((mode) => !mode); }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void handleSave(); }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") { event.preventDefault(); createNewDocument(); }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "o") { event.preventDefault(); void handleOpen(); }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [createNewDocument, handleOpen, handleSave, softwareUpdate.controller]);
-
-  useEffect(() => {
-    tabsRef.current = tabs;
-  }, [tabs]);
+  }, [createNewDocument, handleOpen, handleSave, softwareUpdate.controller, activeVersionComparison]);
 
   useEffect(() => {
     let disposed = false;
@@ -1253,7 +1403,7 @@ function App() {
       }
       for (const path of nextPaths) {
         if (!currentPaths.has(path)) {
-          await platform.files.watchMarkdownFile(path);
+            await platform.files.watchMarkdownFile(path, tabsRef.current.find((tab) => tab.path === path)?.assetFolder);
           const tab = tabsRef.current.find((candidate) => candidate.path && sameDocumentPath(candidate.path, path));
           if (tab) await processExternalDocumentChange(tab.id, path);
         }
@@ -1471,6 +1621,7 @@ function App() {
                 </div>
                 <span className="app-menu-separator" />
                 <button type="button" onClick={() => invokeMenuAction(toggleDocumentSidebar)}>{text.documentPanel} <kbd>Ctrl Shift B</kbd></button>
+                <button type="button" role="menuitemcheckbox" aria-checked={sourceMode} disabled={Boolean(activeVersionComparison)} onClick={() => invokeMenuAction(() => setSourceMode((mode) => !mode))}>{text.sourceEditing} <kbd>Ctrl Shift M</kbd></button>
                 <button type="button" role="menuitemcheckbox" aria-checked={showLineNumbers} title={text.sourceLineNumbersDescription} className={showLineNumbers ? "is-active" : ""} onClick={() => invokeMenuAction(() => setShowLineNumbers((visible) => !visible))}><span>{text.sourceLineNumbers}</span><span aria-hidden="true">{showLineNumbers ? "✓" : ""}</span></button>
               </div>}
             </div>
@@ -1512,6 +1663,10 @@ function App() {
                 <button type="button" className="workspace-tab-close" onClick={() => closeTab(tab.id)} aria-label={text.closeDocumentWithTitle(tab.title)}>×</button>
               </div>
             ))}
+          </div>
+          <div className="editor-mode-switch" role="group" aria-label={text.editorMode}>
+            <button type="button" aria-pressed={!sourceMode} disabled={Boolean(activeVersionComparison)} onClick={() => setSourceMode(false)}>{text.visualEditing}</button>
+            <button type="button" aria-pressed={sourceMode} disabled={Boolean(activeVersionComparison)} title="Ctrl Shift M" onClick={() => setSourceMode(true)}>{text.sourceEditing}</button>
           </div>
         </div>
 
@@ -1564,12 +1719,14 @@ function App() {
           <section ref={editorStageRef} className={`editor-stage${showLineNumbers ? " has-line-numbers" : ""}`} aria-label={text.editingArea} style={documentFontStyle} hidden={Boolean(activeVersionComparison)}>
               <WritingEditor
                 key={activeDocument.id}
+                sourceMode={sourceMode}
                 documentId={activeDocument.id}
                 markdown={activeDocument.content}
                 showLineNumbers={showLineNumbers}
-                initialContent={activeDocument.initialContent}
                 documentLoadRevision={activeDocument.documentLoadRevision}
                 onContentChange={updateDocument}
+                onEditorReady={registerEditor}
+                onHistoryContext={applyHistoryContext}
                 documentPath={activeDocument.path}
                 assetFolder={activeDocument.assetFolder}
                 assets={activeDocument.assets}
@@ -1612,6 +1769,7 @@ function App() {
             <h2 id="external-change-title">{text.externalChangeDetected}</h2>
             <p>{text.externalChangeDescription(activeDocument.title)}</p>
             <div className="external-change-actions">
+              {activeDocument.diskBase && <button type="button" onClick={openExternalMerge}>{language === "zh" ? "合并双方修改" : "Merge both versions"}</button>}
               <button type="button" onClick={() => setDismissedExternalChangeKey(activeExternalChangeKey)}>{text.externalChangeContinueEditing}</button>
               <button type="button" onClick={openExternalChangeComparison}>{text.externalChangeViewComparison}</button>
               <button type="button" onClick={() => void saveExternalDocumentCopy()}>{text.externalChangeSaveCopy}</button>
@@ -1619,6 +1777,7 @@ function App() {
             </div>
           </section>
         </div>}
+        {externalMerge && <ExternalMergeDialog key={`${externalMerge.documentId}:${externalMerge.revision}`} input={externalMerge} language={language} onApply={applyExternalMerge} onClose={() => setExternalMerge(null)} />}
         {pendingClose && <div className="close-confirm-backdrop" role="presentation">
           <section className="close-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="close-confirm-title">
             <h2 id="close-confirm-title">{pendingClose.kind === "app" ? text.unsavedDocuments : text.unsavedDocument}</h2>

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { platform, type GitAccountStatus, type RemoteAction, type RemoteRepository } from "../../platform";
 import type { FeatureWorkspaceProps } from "../registry";
-import { uploadVersion, type UploadTarget } from "./workflows";
+import { uploadVersion, completeReviewedMerge, type UploadTarget } from "./workflows";
+import { RemoteMergeDialog } from "./RemoteMergeDialog";
+import type { RemoteMergeResolution, RemoteMergeReview } from "../../platform/remoteMergeTypes";
 import "./remoteSync.css";
 
 type RemoteSyncProps = FeatureWorkspaceProps & {
@@ -21,16 +23,19 @@ export function RemoteSyncWorkspace({ document, text, repositoryBusy, runReposit
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<"checked" | "pulled" | "pushed" | "accountSaved" | null>(null);
+  const [message, setMessage] = useState<"checked" | "pulled" | "merged" | "pushed" | "accountSaved" | null>(null);
   const [editingAccount, setEditingAccount] = useState(false);
   const [accountHost, setAccountHost] = useState("gitee.com");
   const [accountLogin, setAccountLogin] = useState("");
   const [secret, setSecret] = useState("");
   const [confirmPush, setConfirmPush] = useState<UploadTarget | null>(null);
   const [adding, setAdding] = useState(false);
+  const [mergeReview, setMergeReview] = useState<RemoteMergeReview | null>(null);
+  const mergeReviewRef = useRef(mergeReview); mergeReviewRef.current = mergeReview;
   const sequence = useRef(0);
   const mounted = useRef(true);
   const activePath = useRef(document.path);
+  const unsavedRef = useRef(hasUnsavedDocuments); unsavedRef.current = hasUnsavedDocuments;
   activePath.current = document.path;
   const remote = repository?.remotes.find((item) => item.name === selected) ?? repository?.remotes[0];
 
@@ -59,10 +64,11 @@ export function RemoteSyncWorkspace({ document, text, repositoryBusy, runReposit
     return () => {
       mounted.current = false;
       sequence.current++;
+      if (mergeReviewRef.current) void platform.remoteGit.discardMerge(mergeReviewRef.current.id).catch(console.warn);
     };
   }, [refreshAccounts]);
 
-  useEffect(() => { setRepository(null); setConfirmPush(null); setError(null); setMessage(null); setAdding(false); setName("origin"); setUrl(""); void refresh(); }, [document.path, refresh]);
+  useEffect(() => { if (mergeReviewRef.current) void platform.remoteGit.discardMerge(mergeReviewRef.current.id).catch(console.warn); setMergeReview(null); setRepository(null); setConfirmPush(null); setError(null); setMessage(null); setAdding(false); setName("origin"); setUrl(""); void refresh(); }, [document.path, refresh]);
   useEffect(() => { setConfirmPush(null); }, [versionDescription]);
   useEffect(() => { void refresh(); }, [document.headRevisionEpoch, document.workingTreeEpoch, refresh]);
 
@@ -107,6 +113,35 @@ export function RemoteSyncWorkspace({ document, text, repositoryBusy, runReposit
     });
   };
 
+  const compareRemote = () => {
+    if (!document.path || !repository || !remote) return;
+    const path = document.path;
+    void perform("compare", async () => {
+      const review = await platform.remoteGit.prepareMerge({ documentPath: path, remote: remote.name, stateToken: repository.stateToken });
+      if (mounted.current && activePath.current === path) setMergeReview(review);
+      else await platform.remoteGit.discardMerge(review.id);
+    });
+  };
+  const closeMerge = () => {
+    const review = mergeReviewRef.current;
+    setMergeReview(null);
+    if (review) void platform.remoteGit.discardMerge(review.id).catch(console.warn);
+  };
+  const applyMerge = async (resolutions: RemoteMergeResolution[], message: string) => {
+    const review = mergeReviewRef.current;
+    if (!review || !document.path || document.path !== activePath.current) throw new Error(t.targetChanged);
+    if (hasUnsavedDocuments) throw new Error(t.unsaved);
+    const path = document.path;
+    setBusy("merge");
+    try {
+      await runRepositoryOperation(async () => {
+        const result = await completeReviewedMerge(platform.remoteGit, path, review, resolutions, message, () => unsavedRef.current, t);
+        if (mounted.current && activePath.current === path) { setRepository(result); setMergeReview(null); setMessage("merged"); }
+        await onDiskDocumentsChanged(result.changedPaths);
+      });
+    } finally { onVersionStateChanged(); await refresh(); if (mounted.current) setBusy(null); }
+  };
+
   const usesHttps = remote?.pushUrl.startsWith("https://") ?? false;
   const remoteAccounts = accounts.accounts.filter((account) => usesHttps && account.host === remote?.host);
   const working = Boolean(busy || repositoryBusy);
@@ -133,6 +168,7 @@ export function RemoteSyncWorkspace({ document, text, repositoryBusy, runReposit
           <div className="remote-actions">
             <button type="button" className="is-primary" disabled={uploadDisabled || diverged} onClick={() => setConfirmPush({ repository, remote, createVersion: hasDocumentChanges })}>{busy === "push" ? t.pushing : hasDocumentChanges ? t.createAndPush : t.push}</button>
             <button type="button" disabled={disabled} onClick={() => synchronize("fetch")}>{busy === "fetch" ? t.fetching : t.fetch}</button>
+            <button type="button" disabled={working || !repository.branch || !repository.hasCommits || remote.behind === null} onClick={compareRemote}>{busy === "compare" ? t.busy : t.merge.open}</button>
             <button type="button" title={hasUnsavedDocuments ? t.unsaved : repository.dirty ? t.dirty : t.pull} disabled={disabled || hasUnsavedDocuments || repository.dirty || diverged} onClick={() => synchronize("pull")}>{busy === "pull" ? t.pulling : t.pull}</button>
           </div>
           {hasDocumentChanges && <p>{t.createAndPushHelp}</p>}
@@ -199,5 +235,6 @@ export function RemoteSyncWorkspace({ document, text, repositoryBusy, runReposit
         setAccountHost("gitee.com"); setAccountLogin(""); setSecret(""); setEditingAccount(true);
       }}>{t.addAccount}</button><p>{accounts.credentialStorageAvailable ? t.storageHelp : t.storageUnavailable}</p></>}
     </details>
+    {mergeReview && <RemoteMergeDialog review={mergeReview} document={document} text={text} blocked={hasUnsavedDocuments || !!repository?.dirty} onClose={closeMerge} onApply={applyMerge} />}
   </section>;
 }

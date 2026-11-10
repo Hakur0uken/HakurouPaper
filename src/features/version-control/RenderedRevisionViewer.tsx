@@ -6,7 +6,7 @@ import { fontFamilyStack } from "../../appearanceSettings";
 import { handleDocumentLinkClick } from "../../documentLinks";
 import type { UiText } from "../../i18n";
 import { RevisionAuthor } from "./RevisionAuthor";
-import { platform, type RevisionAssetManifest, type RevisionDescriptor, type RevisionTextSnapshot, type VersionChange, type VersionComparison } from "../../platform";
+import { platform, type RevisionAssetManifest, type RevisionAssetSnapshot, type RevisionDescriptor, type RevisionTextSnapshot, type VersionChange, type VersionComparison } from "../../platform";
 import type { FeatureDocumentContext } from "../registry";
 import { RevisionOverviewRuler } from "./RevisionOverviewRuler";
 import { getCachedRevisionTextSnapshot, getRevisionComparisonData } from "./revisionDataCache";
@@ -28,6 +28,7 @@ type RevisionAssetContext = {
   workingDocumentPath?: string | null;
   previewPaths: Map<string, string>;
   manifestPaths: Set<string>;
+  loadAsset?: DirectRevisionComparison["loadAsset"];
 };
 
 const formulaHtmlCache = new Map<string, string | null>();
@@ -53,6 +54,8 @@ export type DirectRevisionComparison = {
   comparison: VersionComparison;
   before: RevisionTextSnapshot;
   after: RevisionTextSnapshot;
+  readOnly?: boolean;
+  loadAsset?: (revisionId: string, assetPath: string) => Promise<RevisionAssetSnapshot | null>;
 };
 
 function touchFormulaCache(key: string, value: string | null) {
@@ -195,14 +198,14 @@ function currentTextSnapshot(document: FeatureDocumentContext, revision: Revisio
   return { revision, markdown: document.content, metadata: document.sidecarContent, assets: currentAssetManifest(document, changes) };
 }
 
-function createAssetContext(snapshot: RevisionTextSnapshot, documentPath: string, assetFolder: string | null, workingDocumentPath?: string | null): RevisionAssetContext {
+function createAssetContext(snapshot: RevisionTextSnapshot, documentPath: string, assetFolder: string | null, workingDocumentPath?: string | null, loadAsset?: DirectRevisionComparison["loadAsset"]): RevisionAssetContext {
   const previewPaths = new Map<string, string>();
   try {
     parseDocumentSidecar(snapshot.metadata).sidecar.assets.forEach((asset) => {
       if (asset.preview?.path && directImageFormat(asset.preview.path)) previewPaths.set(normalizedAssetPath(asset.source.path), asset.preview.path);
     });
   } catch { /* Invalid sidecar metadata must not prevent body rendering. */ }
-  return { snapshot, documentPath, assetFolder, workingDocumentPath, previewPaths, manifestPaths: new Set(snapshot.assets.map((asset) => normalizedAssetPath(asset.path))) };
+  return { snapshot, documentPath, assetFolder, workingDocumentPath, loadAsset, previewPaths, manifestPaths: new Set(snapshot.assets.map((asset) => normalizedAssetPath(asset.path))) };
 }
 
 function preferredImagePath(context: RevisionAssetContext, path: string | undefined) {
@@ -230,7 +233,7 @@ function historicalImageUrl(context: RevisionAssetContext, path: string) {
   }
   const cached = historicalAssetRequests.get(key);
   if (cached) return cached;
-  const request = platform.versionControl.getRevisionAsset({ documentPath: context.documentPath, assetFolder: context.assetFolder, revisionId, assetPath: path })
+  const request = (context.loadAsset ? context.loadAsset(revisionId, path) : platform.versionControl.getRevisionAsset({ documentPath: context.documentPath, assetFolder: context.assetFolder, revisionId, assetPath: path }))
     .then((asset) => {
       if (!asset) return null;
       const blob = blobUrlFromBase64(asset.dataBase64, asset.mimeType);
@@ -506,10 +509,15 @@ export function RenderedRevisionViewer({ document, versionId, initialLocation, t
     return () => { if (idle !== undefined) window.cancelIdleCallback?.(idle); if (timer !== undefined) window.clearTimeout(timer); };
   }, [modelState]);
 
-  const revisionFormatDefaults = useMemo(() => viewerState.kind === "ready" ? parseDocumentFormatSettings(parseDocumentSidecar(viewerState.after.metadata).sidecar.format).defaults : undefined, [viewerState]);
+  const revisionFormatting = useMemo(() => {
+    if (viewerState.kind !== "ready") return {};
+    try { return { defaults: parseDocumentFormatSettings(parseDocumentSidecar(viewerState.after.metadata).sidecar.format).defaults }; }
+    catch (error) { return { error: String(error) }; }
+  }, [viewerState]);
+  const revisionFormatDefaults = revisionFormatting.defaults;
   const formatStyle = useMemo<CSSProperties | undefined>(() => revisionFormatDefaults?.font ? { "--hakurou-document-font-family": fontFamilyStack(revisionFormatDefaults.font), "--hakurou-document-font-weight": String(revisionFormatDefaults.font.weight) } as CSSProperties : undefined, [revisionFormatDefaults]);
-  const beforeAssets = useMemo(() => viewerState.kind === "ready" && document.path ? createAssetContext(viewerState.before, document.path, document.assetFolder, directComparison ? document.path : null) : null, [directComparison, document.assetFolder, document.path, viewerState]);
-  const afterAssets = useMemo(() => viewerState.kind === "ready" && document.path ? createAssetContext(viewerState.after, document.path, document.assetFolder, viewerState.after.revision.kind === "currentDocument" ? document.path : null) : null, [document.assetFolder, document.path, viewerState]);
+  const beforeAssets = useMemo(() => viewerState.kind === "ready" && document.path ? createAssetContext(viewerState.before, document.path, document.assetFolder, directComparison && !directComparison.readOnly ? document.path : null, directComparison?.loadAsset) : null, [directComparison, document.assetFolder, document.path, viewerState]);
+  const afterAssets = useMemo(() => viewerState.kind === "ready" && document.path ? createAssetContext(viewerState.after, document.path, document.assetFolder, viewerState.after.revision.kind === "currentDocument" ? document.path : null, directComparison?.loadAsset) : null, [directComparison, document.assetFolder, document.path, viewerState]);
   const targetVersion = viewerState.kind === "ready" ? viewerState.comparison.targetRevision : null;
   const settingsChanged = viewerState.kind === "ready" && viewerState.before.metadata !== viewerState.after.metadata;
   const locations = modelState.kind === "ready" ? modelState.locations : [];
@@ -522,9 +530,10 @@ export function RenderedRevisionViewer({ document, versionId, initialLocation, t
   useEffect(() => { if (!initialLocation) return; const location = findMatchingLocation(locations, initialLocation); if (location) navigateToLocation(location); }, [initialLocation, locations, navigateToLocation]);
 
   return <section ref={viewerRef} className="rendered-revision-viewer" aria-label={text.versionRenderedPreview} onClickCapture={handleDocumentLinkClick} onAuxClickCapture={handleDocumentLinkClick}>
-    <header className="rendered-revision-toolbar"><div className="rendered-revision-toolbar-main"><div className="rendered-revision-title-line"><h1>{text.versionRenderedPreview}</h1>{modelState.kind === "ready" && <span>{text.versionRenderedChangeCount(modelState.model.summary.changeGroups)}</span>}{locations.length > 0 && <span>{`${Math.max(1, activeLocationIndex + 1)} / ${locations.length}`}</span>}{settingsChanged && <span>{text.versionSettingsChanged}</span>}{document.isDirty && <span>{text.versionPreviewUnsavedContent}</span>}</div><div className="rendered-revision-actions">{locations.length > 0 && <><button type="button" onClick={() => navigateByOffset(-1)}>{text.versionPreviousChange}</button><button type="button" onClick={() => navigateByOffset(1)}>{text.versionNextChange}</button></>}{!directComparison && <button type="button" onClick={onOpenAdvanced}>{text.versionAdvancedCompare}</button>}{targetVersion?.kind === "version" && targetVersion.id && <button type="button" className="is-primary" onClick={() => onRestoreVersion(targetVersion.id!, revisionTitle(targetVersion, text, "right"))}>{text.versionRestoreThis}</button>}<button type="button" onClick={onClose}>{text.versionDiffClose}</button></div></div>{viewerState.kind === "ready" && <div className="rendered-revision-pair"><CompactRevisionMeta revision={viewerState.comparison.baseRevision} side="left" text={text} /><span className="rendered-revision-arrow" aria-hidden="true">→</span><CompactRevisionMeta revision={viewerState.comparison.targetRevision} side="right" text={text} /></div>}</header>
+    <header className="rendered-revision-toolbar"><div className="rendered-revision-toolbar-main"><div className="rendered-revision-title-line"><h1>{text.versionRenderedPreview}</h1>{modelState.kind === "ready" && <span>{text.versionRenderedChangeCount(modelState.model.summary.changeGroups)}</span>}{locations.length > 0 && <span>{`${Math.max(1, activeLocationIndex + 1)} / ${locations.length}`}</span>}{settingsChanged && <span>{text.versionSettingsChanged}</span>}{document.isDirty && <span>{text.versionPreviewUnsavedContent}</span>}</div><div className="rendered-revision-actions">{locations.length > 0 && <><button type="button" onClick={() => navigateByOffset(-1)}>{text.versionPreviousChange}</button><button type="button" onClick={() => navigateByOffset(1)}>{text.versionNextChange}</button></>}{!directComparison && <button type="button" onClick={onOpenAdvanced}>{text.versionAdvancedCompare}</button>}{!directComparison?.readOnly && targetVersion?.kind === "version" && targetVersion.id && <button type="button" className="is-primary" onClick={() => onRestoreVersion(targetVersion.id!, revisionTitle(targetVersion, text, "right"))}>{text.versionRestoreThis}</button>}<button type="button" onClick={onClose}>{text.versionDiffClose}</button></div></div>{viewerState.kind === "ready" && <div className="rendered-revision-pair"><CompactRevisionMeta revision={viewerState.comparison.baseRevision} side="left" text={text} /><span className="rendered-revision-arrow" aria-hidden="true">→</span><CompactRevisionMeta revision={viewerState.comparison.targetRevision} side="right" text={text} /></div>}</header>
     {(viewerState.kind === "loading" || modelState.kind === "building") && <p className="rendered-revision-message">{text.versionRenderedLoading}</p>}
     {viewerState.kind === "error" && <p className="rendered-revision-message is-error">{viewerState.message}</p>}
+    {revisionFormatting.error && <p className="rendered-revision-message is-error" role="alert">{revisionFormatting.error}</p>}
     {modelState.kind === "error" && <div className="rendered-revision-message is-error"><p>{text.versionRenderedFailed}</p><p>{modelState.message}</p>{!directComparison && <button type="button" onClick={onOpenAdvanced}>{text.versionAdvancedCompare}</button>}</div>}
     {modelState.kind === "ready" && beforeAssets && afterAssets && <div className="rendered-revision-content"><article className={`rendered-revision-document ${revisionFormatDefaults?.tableStyle === "three-line" ? "is-three-line" : ""} ${revisionFormatDefaults?.firstLineIndent ? "is-first-line-indented" : ""}`} style={formatStyle}>{modelState.model.blocks.map((block) => { const location = locationsByBlock.get(block.id); return <RevisionBlockView key={block.id} block={block} revision={modelState.model.rightRevision} beforeAssets={beforeAssets} afterAssets={afterAssets} location={location} isNavigationTarget={location?.targetId === activeLocation?.targetId} text={text} />; })}</article>{overviewReady && <RevisionOverviewRuler locations={locations} activeLocationId={activeLocationId} onNavigate={navigateToLocation} scrollContainer={viewerRef.current} />}</div>}
   </section>;

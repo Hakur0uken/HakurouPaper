@@ -1,5 +1,6 @@
 import type { GitRemote, RemoteGitService, RemoteRepository } from "../../platform/remoteTypes";
 import type { RemoteSyncText } from "./text";
+import type { RemoteMergeResolution, RemoteMergeReview } from "../../platform/remoteMergeTypes";
 
 export type UploadTarget = { repository: RemoteRepository; remote: GitRemote; createVersion: boolean };
 
@@ -50,4 +51,14 @@ export async function updateWorkingDirectory(
   if (repository.dirty) throw new Error(text.dirty);
   if (hasUnsavedDocuments()) throw new Error(text.unsaved);
   return service.sync({ documentPath: path, remote: remote.name, action: "pull", stateToken: repository.stateToken });
+}
+
+/** Recheck the reviewed repository and the live unsaved state before publishing. */
+export async function completeReviewedMerge(service: RemoteGitService, path: string, review: RemoteMergeReview, resolutions: RemoteMergeResolution[], message: string, hasUnsavedDocuments: () => boolean, text: RemoteSyncText) {
+  if (hasUnsavedDocuments()) throw new Error(text.unsaved);
+  const current = await service.inspect(path);
+  if (current.stateToken !== review.stateToken || current.repositoryRoot !== review.repositoryRoot || current.branch !== review.branch) throw new Error(text.targetChanged);
+  if (current.dirty) throw new Error(text.dirty);
+  if (hasUnsavedDocuments()) throw new Error(text.unsaved);
+  return service.completeMerge({ planId: review.id, resolutions, message });
 }

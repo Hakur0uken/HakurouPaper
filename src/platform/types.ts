@@ -1,6 +1,7 @@
 import type { AssetV1 } from "../core/schema";
 import type { RemoteGitService } from "./remoteTypes";
 import type { SoftwareUpdateService } from "./updateTypes";
+import type { AgentService } from "./agentTypes";
 
 export type PlatformCapabilities = {
   richClipboard: boolean;
@@ -311,8 +312,8 @@ export interface FileService {
   /** Resolves after subscribing and processing the initial batch of open requests. */
   onOpenMarkdownRequested(listener: (path: string) => Promise<void>): Promise<() => void>;
   readMarkdown(path: string): Promise<string>;
-  writeMarkdown(path: string, content: string): Promise<void>;
-  watchMarkdownFile(path: string): Promise<void>;
+  writeMarkdown(path: string, content: string, expectedContent?: string): Promise<void>;
+  watchMarkdownFile(path: string, assetFolder?: string | null): Promise<void>;
   unwatchMarkdownFile(path: string): Promise<void>;
   onMarkdownFileChanged(listener: (path: string) => void): Promise<() => void>;
   readDocumentFormat(documentPath: string, assetFolder: string | null): Promise<StoredDocumentFormat | null>;
@@ -385,6 +386,7 @@ export interface VersionControlService {
 }
 
 export type PlatformServices = {
+  agent: AgentService;
   capabilities: PlatformCapabilities;
   files: FileService;
   dialogs: DialogService;

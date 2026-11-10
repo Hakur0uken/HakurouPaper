@@ -4,6 +4,7 @@ import type { Node as ProseNode } from "@milkdown/prose/model";
 import { Decoration, DecorationSet } from "@milkdown/prose/view";
 import { createFormatAnchor, resolveFormatAnchor, type DocumentFormatSettings, type TableDecorationSetting, type TableFormatEntry } from "./formatTypes";
 import type { TableStyle } from "./appearanceSettings";
+import { formatRestoreKey } from "./editor/formatRestore";
 
 export type TableDecoration = TableDecorationSetting;
 
@@ -91,6 +92,11 @@ export function createTableDecorationPlugin(initialSettings: DocumentFormatSetti
     state: {
       init: (_config, state) => ({ defaultDecoration, decorations: hydrateTableDecorations(state.doc, initialSettings.tables, defaultDecoration) }),
       apply: (transaction, tableState) => {
+        const restored = transaction.getMeta(formatRestoreKey);
+        if (restored) {
+          const defaultDecoration = tableDecorationForStyle(restored.tableStyle);
+          return { defaultDecoration, decorations: hydrateTableDecorations(transaction.doc, restored.settings.tables, defaultDecoration) };
+        }
         const changes = transaction.getMeta(tableDecorationPluginKey) as TableDecorationChange[] | undefined;
         const defaultChange = transaction.getMeta(tableDefaultStylePluginKey) as TableDefaultChange | undefined;
         if (!transaction.docChanged && !changes && !defaultChange) return tableState;

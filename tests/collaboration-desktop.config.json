@@ -1,0 +1,12 @@
+{
+  "productName": "HakurouPaper Collaboration Validation",
+  "identifier": "com.hakurou.paper.collaboration-validation",
+  "build": {
+    "beforeDevCommand": "npm run dev -- --host 127.0.0.1 --port 1437",
+    "devUrl": "http://127.0.0.1:1437"
+  },
+  "app": {
+    "windows": [{ "label": "main", "title": "HakurouPaper Collaboration Validation", "width": 1120, "height": 760, "minWidth": 760, "minHeight": 520, "decorations": false }]
+  },
+  "bundle": { "active": false }
+}

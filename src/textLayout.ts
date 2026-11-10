@@ -3,6 +3,7 @@ import type { Node as ProseNode } from "@milkdown/prose/model";
 import { Plugin, PluginKey, type EditorState, type Transaction } from "@milkdown/prose/state";
 import { Decoration, DecorationSet } from "@milkdown/prose/view";
 import { createFormatAnchor, resolveFormatAnchor, type DocumentFormatSettings, type TextAlignment, type TextFormatEntry, type TextLayoutSetting } from "./formatTypes";
+import { formatRestoreKey } from "./editor/formatRestore";
 
 export type { TextAlignment } from "./formatTypes";
 export type TextLayout = TextLayoutSetting;
@@ -118,6 +119,11 @@ export function createTextLayoutPlugin(initialSettings: DocumentFormatSettings, 
     state: {
       init: (_config, state) => ({ defaultLayout, layouts: hydrateTextLayouts(state.doc, initialSettings.text, defaultLayout) }),
       apply: (transaction, textState) => {
+        const restored = transaction.getMeta(formatRestoreKey);
+        if (restored) {
+          const defaultLayout: TextLayout = { alignment: "left", firstLineIndent: restored.firstLineIndent };
+          return { defaultLayout, layouts: hydrateTextLayouts(transaction.doc, restored.settings.text, defaultLayout) };
+        }
         const changes = transaction.getMeta(textLayoutPluginKey) as TextLayoutChange[] | undefined;
         const defaultChange = transaction.getMeta(textDefaultLayoutPluginKey) as TextDefaultChange | undefined;
         if (!transaction.docChanged && !changes && !defaultChange) return textState;

@@ -22,8 +22,10 @@ use std::os::windows::process::CommandExt;
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 mod git;
+mod agent;
 mod git_accounts;
 mod remote_git;
+mod remote_merge;
 mod mathtype;
 mod open_requests;
 mod pandoc;
@@ -119,6 +121,7 @@ fn watch_markdown_file(
     app: tauri::AppHandle,
     state: State<'_, MarkdownWatchState>,
     path: String,
+    asset_folder: Option<String>,
 ) -> Result<(), String> {
     let opened_path = PathBuf::from(&path);
     if !is_markdown_path(&opened_path) {
@@ -134,9 +137,11 @@ fn watch_markdown_file(
         .watchers
         .lock()
         .map_err(|_| "无法准备文稿文件监听。")?;
-    if watchers.contains_key(&path) {
-        return Ok(());
-    }
+    let assets_dir = directory.join("assets");
+    let asset_dir = assets_dir.join(document_asset_folder(&opened_path, asset_folder));
+    let format_path = asset_dir.join("hakurou.json");
+    let observed_asset_dir = asset_dir.clone();
+    let observed_assets_dir = assets_dir.clone();
 
     let emitted_path = path.clone();
     let app_handle = app.clone();
@@ -145,6 +150,7 @@ fn watch_markdown_file(
         if !is_document_change(&event)
             || !event.paths.iter().any(|candidate| {
                 same_document_path(candidate, &opened_path, &normalized_opened_path)
+                    || candidate == &format_path || candidate == &observed_asset_dir || candidate == &observed_assets_dir
             })
         {
             return;
@@ -160,6 +166,12 @@ fn watch_markdown_file(
     watcher
         .watch(&directory, RecursiveMode::NonRecursive)
         .map_err(|error| format!("无法监听文稿目录：{error}"))?;
+    for extra in [&assets_dir, &asset_dir] {
+        if extra.is_dir() {
+            watcher.watch(extra, RecursiveMode::NonRecursive)
+                .map_err(|error| format!("无法监听文稿资源目录：{error}"))?;
+        }
+    }
     watchers.insert(path, watcher);
     Ok(())
 }
@@ -235,12 +247,16 @@ fn read_markdown(app: tauri::AppHandle, path: String) -> Result<String, String> 
 }
 
 #[tauri::command]
-fn write_markdown(path: String, content: String) -> Result<(), String> {
+fn write_markdown(path: String, content: String, expected_content: Option<String>) -> Result<(), String> {
     let path = Path::new(&path);
     if !is_markdown_path(path) {
         return Err("请使用 .md、.markdown 或 .mdx 文件扩展名。".into());
     }
 
+    if let Some(expected) = expected_content {
+        let current = std::fs::read_to_string(path).map_err(|error| format!("无法核对磁盘文稿，未保存：{error}"))?;
+        if current != expected { return Err("磁盘文稿又有变化，未覆盖。请重新检查或合并后保存。".into()); }
+    }
     atomic_write(path, content.as_bytes()).map_err(|error| format!("无法保存文稿：{error}"))
 }
 
@@ -781,6 +797,19 @@ mod tests {
     }
 
     #[test]
+    fn markdown_save_refuses_an_outdated_disk_baseline() {
+        let root = std::env::temp_dir().join(format!("hakurou-save-guard-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("paper.md");
+        std::fs::write(&path, "external edit").unwrap();
+        assert!(write_markdown(path.to_string_lossy().into_owned(), "local edit".into(), Some("old baseline".into())).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "external edit");
+        write_markdown(path.to_string_lossy().into_owned(), "merged edit".into(), Some("external edit".into())).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "merged edit");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn share_package_copies_document_assets_and_uses_a_unique_folder() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -921,10 +950,17 @@ pub fn run() {
         .plugin(tauri_plugin_process::init());
     builder
         .manage(MarkdownWatchState::default())
+        .manage(agent::AgentState::default())
+        .setup(|app| {
+            if let Err(error) = agent::start(app.handle()) { eprintln!("Local agent bridge unavailable: {error}"); }
+            Ok(())
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             open_requests::take_open_markdown_requests,
+            agent::take_agent_requests,
+            agent::answer_agent_request,
             read_markdown,
             write_markdown,
             watch_markdown_file,
@@ -954,6 +990,11 @@ pub fn run() {
             remote_git::add_git_remote,
             remote_git::bind_git_remote_account,
             remote_git::sync_git_remote,
+            remote_merge::prepare_remote_merge,
+            remote_merge::read_remote_merge_file,
+            remote_merge::read_remote_merge_asset,
+            remote_merge::complete_remote_merge,
+            remote_merge::discard_remote_merge,
             git_accounts::inspect_git_accounts,
             git_accounts::save_git_account,
             git_accounts::remove_git_account,

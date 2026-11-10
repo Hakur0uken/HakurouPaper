@@ -1,4 +1,6 @@
+import { remoteMergeZh, remoteMergeEn } from "./mergeText";
 export const remoteSyncZh = {
+  merge: remoteMergeZh,
   title: "远程协作",
   description: "连接已有仓库，与合作者交接版本。",
   experimental: "试验中 · 待实际账号验收",
@@ -27,6 +29,7 @@ export const remoteSyncZh = {
   operationBusy: "另一个版本或同步操作正在进行，请稍后重试。",
   settings: "仓库与账号设置",
   updatedDirectory: "工作目录已更新。",
+  reopenFailed: (paths: string) => `仓库已更新，但以下已打开的文稿无法重新读取，可能已被删除或改名。内存内容已保留为未保存，请检查路径，必要时另存为：\n${paths}`,
   fetching: "正在检查…",
   pulling: "正在获取…",
   pushing: "正在上传…",
@@ -37,7 +40,7 @@ export const remoteSyncZh = {
   dirty: "仓库有未提交的文件；获取更新前请先保存并创建版本。",
   unsaved: "有文稿尚未保存；获取更新前请先保存所有打开的文稿。",
   noCommits: "尚无本地版本。填写上方版本说明后，可直接创建版本并上传。",
-  divergent: "双方都有独立修改，需先在 Git 中合并；软件不会自动覆盖或处理冲突。",
+  divergent: "双方都有独立修改。点击“比较与合并”查看双方改动并处理冲突。",
   account: "此仓库使用的账号",
   system: "使用系统 Git / SSH 身份",
   chooseAccount: "请选择账号",
@@ -62,19 +65,22 @@ export const remoteSyncZh = {
   confirmPush: "确认上传到此仓库和分支",
   checked: "远程记录已更新，当前文稿未改变。",
   pulled: "已获取可直接合入的更新。",
+  merged: "远程修改已合入本地，尚未上传。",
   pushed: "版本已上传。",
 };
 export type RemoteSyncText = typeof remoteSyncZh;
 export const remoteSyncEn: RemoteSyncText = {
+  merge: remoteMergeEn,
   title: "Remote collaboration", description: "Connect an existing repository and hand off versions.", experimental: "Experimental · Live-account validation pending",
   gettingStarted: "Create a repository and invite collaborators on GitHub / Gitee. Clone it with git clone, then open a manuscript inside it. Repository settings are detected automatically.",
   openFirst: "Save the manuscript and enable version management above first.",
   refresh: "Refresh", repository: "Current repository", remote: "Remote", branch: "Branch", detached: "No branch selected", addRemote: "Add repository address", remoteName: "Remote name", remoteUrl: "Repository address", connect: "Connect repository", addHelp: "Use the HTTPS or SSH clone address from the website. Existing connections will not be replaced.",
   fetch: "Check updates", pull: "Update working directory", push: "Upload versions", fetching: "Checking…", pulling: "Getting updates…", pushing: "Uploading…", busy: "Working…",
   createAndPush: "Create version and upload", createAndPushHelp: "Enter a version description above to save this manuscript, create a version, and upload it.", confirmCreateAndPush: "Confirm creation and upload", createdUploadFailed: "The local version was created, but upload did not finish. Retry Upload versions without creating another version.", targetChanged: "The repository, branch, or account changed. Review the upload destination again.", connectFirst: "Connect a remote repository in Version management first.", choosePullRemote: "The branch upstream is ambiguous. Select a remote in Version management and click Update working directory.", operationBusy: "Another version or sync operation is running. Try again shortly.", settings: "Repository and account settings", updatedDirectory: "Working directory updated.",
+  reopenFailed: (paths: string) => `The repository updated, but these open manuscripts could not be reloaded. They may have been deleted or renamed. Their in-memory contents are retained as unsaved. Check the paths and use Save as if needed:\n${paths}`,
   scope: "Sync covers the entire repository branch, including all committed manuscripts and assets. Uncommitted changes are not uploaded.",
   counts: (ahead, behind) => `${ahead} outgoing · ${behind} incoming versions (local record)`, unknown: "No remote branch record yet. Check updates first, or upload the first version to an empty repository.",
-  dirty: "The repository has uncommitted files. Save and create versions before getting updates.", unsaved: "Save all open manuscripts before getting updates.", noCommits: "No local versions yet. Enter a version description above to create and upload the first version.", divergent: "Both sides have independent changes. Merge them using Git first; this app will not overwrite or resolve conflicts automatically.",
+  dirty: "The repository has uncommitted files. Save and create versions before getting updates.", unsaved: "Save all open manuscripts before getting updates.", noCommits: "No local versions yet. Enter a version description above to create and upload the first version.", divergent: "Both sides have independent changes. Compare and merge to review changes and resolve conflicts.",
   account: "Account for this repository", system: "Use system Git / SSH identity", chooseAccount: "Choose an account", accounts: "Saved Git accounts", noAccounts: "No saved accounts. Existing Git / SSH credentials can still be used.",
   addAccount: "Add Git account", editAccount: "Update credentials", saveAccount: "Save credentials", provider: "Hosting platform", username: "Username (from your profile URL)", password: "Git password or token", token: "Personal access token (PAT)",
   giteeHelp: "Use the Gitee credentials you normally use to clone, pull or push over HTTPS, as required by your account's security settings.",
@@ -83,5 +89,5 @@ export const remoteSyncEn: RemoteSyncText = {
   storageUnavailable: "Saving credentials in the app is not supported on this platform yet. Use your system Git / SSH identity.",
   sshHelp: "This repository uses system SSH keys. Saved account credentials apply to HTTPS repositories.",
   accountSaved: "Credentials saved. Check updates to check repository access; upload permission is checked during upload.",
-  cancel: "Cancel", remove: "Remove local account", removeHelp: "Removal deletes credentials saved by this app on this computer. It does not delete the hosting account.", confirmPush: "Confirm upload to this repository and branch", checked: "Remote records updated. The manuscript was not changed.", pulled: "Fast-forward updates applied.", pushed: "Versions uploaded.",
+  cancel: "Cancel", remove: "Remove local account", removeHelp: "Removal deletes credentials saved by this app on this computer. It does not delete the hosting account.", confirmPush: "Confirm upload to this repository and branch", checked: "Remote records updated. The manuscript was not changed.", pulled: "Fast-forward updates applied.", merged: "Remote changes merged locally. Not uploaded yet.", pushed: "Versions uploaded.",
 };

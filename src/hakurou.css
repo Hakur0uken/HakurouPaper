@@ -72,7 +72,12 @@ button { font: inherit; }
 .window-controls button:hover { background: #3a3a37; }
 .window-controls .window-close:hover { background: #c84d45; }
 
-.workspace-tabs { display: grid; grid-template-columns: 52px minmax(0, 1fr); min-width: 0; border-bottom: 1px solid #e2e0db; background: #efeeea; }
+.workspace-tabs { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; min-width: 0; border-bottom: 1px solid #e2e0db; background: #efeeea; }
+.editor-mode-switch { display: flex; align-items: stretch; border-left: 1px solid #e2e0db; padding: 0 6px; }
+.editor-mode-switch button { border: 0; border-bottom: 2px solid transparent; padding: 0 10px; color: #827d74; background: transparent; cursor: pointer; font: inherit; font-size: 12px; }
+.editor-mode-switch button[aria-pressed="true"] { border-bottom-color: #54715a; color: #31503b; }
+.editor-mode-switch button:hover:not(:disabled) { background: #e9e7e1; }
+.editor-mode-switch button:disabled { opacity: .5; cursor: default; }
 .tab-rail-spacer { border-right: 1px solid #e4e1da; background: #f2f1ed; }
 .workspace-tab-scroll { display: flex; align-items: stretch; gap: 0; min-width: 0; overflow-x: auto; }
 .workspace-tab-scroll::-webkit-scrollbar { display: none; }
@@ -429,6 +434,11 @@ button { font: inherit; }
 
 .editor-stage { --hakurou-document-font-family: Georgia, "Noto Serif SC", "Songti SC", serif; --hakurou-document-font-weight: 400; position: relative; min-width: 0; overflow-y: auto; padding: 64px max(44px, 8vw) 84px; }
 .writing-editor-root { position: relative; }
+.markdown-source-editor { display: flex; width: min(100%, 1000px); min-height: 64vh; margin: 0 auto; gap: 18px; }
+.markdown-source-editor[hidden] { display: none; }
+.markdown-source-input, .markdown-source-line-numbers { margin: 0; border: 0; padding: 8px 0; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 14px; line-height: 24px; tab-size: 4; }
+.markdown-source-input { display: block; flex: 1; min-width: 0; min-height: 64vh; resize: none; outline: none; color: #3d3a34; background: transparent; overflow-x: auto; }
+.markdown-source-line-numbers { flex: 0 0 auto; color: #aaa59b; text-align: right; user-select: none; }
 .editor-stage.has-line-numbers { padding-left: max(116px, 8vw); }
 .source-line-numbers { position: absolute; top: 0; width: 64px; pointer-events: none; user-select: none; color: #918c83; font: 11px/18px Consolas, "Courier New", monospace; font-variant-numeric: tabular-nums; text-align: right; }
 .source-line-numbers > span { position: absolute; right: 0; white-space: nowrap; transform: translateY(-50%); }
@@ -520,7 +530,11 @@ button { font: inherit; }
 .editor-stage .ProseMirror .hakurou-text-first-line-indent { text-indent: 2em; }
 .editor-stage .ProseMirror strong { color: #31503b; }
 .editor-stage .ProseMirror :not(pre) > code { border-radius: 2px; padding: 1px 4px; color: #3d3a34; background: #e9e7e1; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .86em; line-height: 1.45; }
-.editor-stage .ProseMirror pre { margin: 22px 0; overflow-x: auto; border: 0; padding: 14px 17px; color: #3d3a34; background: #e9e7e1; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 14px; line-height: 1.7; }
+/* Keep code revision markers visible inside horizontal scrolling. */
+.editor-stage .ProseMirror pre { margin: 22px 0; overflow-x: auto; border: 0; border-left: 2px solid transparent; padding: 14px 17px 14px 15px; color: #3d3a34; background: #e9e7e1; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 14px; line-height: 1.7; }
+.editor-stage .ProseMirror pre.hakurou-revision-gutter::before { content: none; }
+.editor-stage .ProseMirror pre.hakurou-revision-gutter.is-added { border-left-color: #7ea47f; }
+.editor-stage .ProseMirror pre.hakurou-revision-gutter.is-modified { border-left-color: #4e86b7; }
 .editor-stage .ProseMirror pre code { padding: 0; color: inherit; background: transparent; font: inherit; }
 .editor-stage .ProseMirror hr { height: 1px; margin: 30px 0; border: 0; background: #d8d5ce; }
 .editor-stage .ProseMirror table { width: 100%; margin: 24px 0; border-collapse: collapse; font-family: var(--hakurou-document-font-family); font-size: 14px; line-height: 1.55; }

@@ -26,11 +26,11 @@ export const tauriFiles: FileService = {
   readMarkdown(path) {
     return invoke<string>("read_markdown", { path });
   },
-  writeMarkdown(path, content) {
-    return invoke("write_markdown", { path, content });
+  writeMarkdown(path, content, expectedContent) {
+    return invoke("write_markdown", { path, content, expectedContent });
   },
-  watchMarkdownFile(path) {
-    return invoke("watch_markdown_file", { path });
+  watchMarkdownFile(path, assetFolder = null) {
+    return invoke("watch_markdown_file", { path, assetFolder });
   },
   unwatchMarkdownFile(path) {
     return invoke("unwatch_markdown_file", { path });

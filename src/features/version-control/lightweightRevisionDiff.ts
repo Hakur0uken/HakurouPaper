@@ -142,10 +142,19 @@ function parseBlocks(markdown: string) {
       continue;
     }
     if (isMathStart(line)) {
-      const closing = line.includes("\\[") ? "\\]" : "$$";
+      const opening = trimmed.startsWith("\\[") ? "\\[" : "$$";
+      const closing = opening === "\\[" ? "\\]" : "$$";
       const group = [line];
       lineIndex += 1;
-      while (lineIndex < lines.length && !(group[group.length - 1] ?? "").includes(closing)) group.push(lines[lineIndex++]!);
+      // The opening $$ is not its own closing delimiter. Counting its body as
+      // separate blocks shifts every following editor revision anchor.
+      if (!line.slice(line.indexOf(opening) + opening.length).includes(closing)) {
+        while (lineIndex < lines.length) {
+          const current = lines[lineIndex++]!;
+          group.push(current);
+          if (current.includes(closing)) break;
+        }
+      }
       append("math", group.join("\n"));
       continue;
     }
